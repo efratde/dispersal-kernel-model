@@ -1,0 +1,132 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+```{r}
+library(dplyr)
+ library(plyr)
+ library(readr)
+ library(psych)
+library(ggplot2)
+library(ggthemes)
+library(data.table)
+ 
+```
+
+```{r}
+all_paths <- list.files(path = "1000 - multi", pattern = "*.csv", full.names = T)
+
+all_content <-
+  all_paths %>%
+  lapply(read.table,
+         header = TRUE,
+         sep = " ",
+         encoding = "UTF-8",fill = T,
+         row.names = NULL,
+         check.names = T)
+
+all_filenames <- all_paths %>%
+  basename() %>%
+  as.list()
+
+names(all_content) <- all_filenames
+
+
+all_lists <- mapply(c, all_content, all_filenames, SIMPLIFY = FALSE)
+
+all_result_multi <- rbindlist(all_lists, fill = T)
+
+write.csv(all_result_single, "all_result_single3.csv")
+```
+cleaning and organizing the tables before merging them together:
+step 1: take tables with 1 column and separate them by comma
+step 2: take tables with 25 columns and...
+
+Finding tables by # columns:
+
+```{r}
+all_content_one_column <- all_content[sapply(all_content,ncol) == 1]
+all_content_25_cols <- all_content[sapply(all_content,ncol) == 25]
+all_content_26_cols <- all_content[sapply(all_content,ncol) == 26]
+
+```
+
+sep datatables with 1 column by comma:
+```{r}
+all_content_sep <- lapply(all_content_one_column, read_delim, delim = ",")
+```
+
+
+```{r}
+
+cnames <-  colnames(ldf_c)
+cnames <- c(cnames, "fixation")
+setwd("1000 - single")
+ files = list.files(pattern="*.csv")
+ ldf_c <- ldply(files, read_delim, delim = " ", col_names = cnames)
+ 
+ setwd("1000 - multi")
+ files = list.files(pattern="*.csv")
+ all_single <- all_result_single
+ all_result_single <- all_single[-c(1)]
+ ldf <- ldply(files, read_delim, delim = " ")
+ colnames(big.all.multi) <- colnames(big.all.single)
+  big.all <- rbind(all_result_multi, all_result_single)
+
+all_content <- lapply(all_content, function(x) gsub("[]]", "", x))
+  all_content <- lapply(all_content, function(x) gsub("[[]", "", x))
+ big.all <- as.data.frame(big.all)
+
+ names(big.all) <- make.names(names(big.all))
+ colnames(big.all)[1] <- c("rd")
+ colnames(big.all)[26] <- c("fixation")
+   big.all[1:3] <- lapply(big.all[1:3], FUN = as.factor)
+ big.all[5:15] <- lapply(big.all[5:15], as.factor)
+ big.all[4] <- lapply(big.all[4], as.numeric)
+ big.all[16:26] <- lapply(big.all[16:26], as.numeric)
+big.all[27] <- lapply(big.all[27], as.factor)
+
+ summary(big.all)
+ 
+ write.csv(big.all, "big.all_result_2507_2100.csv")
+
+```
+
+
+```{r}
+big.all.coupled <- subset(big.all, coupled == "TRUE")
+big.all.uncoupled <- subset(big.all, coupled == "FALSE")
+big.all.cont <- subset(big.all, fragmentation == "no") 
+big.all.frag.black <- subset(big.all, fragmentation == "black") 
+big.all.frag.white <- subset(big.all, fragmentation == "white") 
+big.all.no.adap <- subset(big.all, adaptation == "FALSE") 
+big.all.adap <- subset(big.all, adaptation == "TRUE") 
+all.only.coupld <- subset(big.all.coupled, bins == "all" & rd != "all")
+all.only.adap <- subset(big.all.adap, bins == "all" & rd != "all")
+all.only.frag <- subset(big.all.no.adap, bins == "all" & rd != "all")
+bins.only.adap <- subset(big.all.adap, bins != "all")
+no.bins <- subset(big.all, bins == "all")
+```
+
+```{r}
+summary(no.bins)
+```
+
+
+```{r}
+ggplot(all.only.adap) + aes(x = step, y = htz_mean, color = rd) + 
+    geom_point(alpha = 0.2) + 
+    geom_smooth(method = "loess")+ theme_clean(base_size = 20) +  
+    facet_grid(cols = vars(coupled), rows = vars(stratgies))  
+```
+
+```{r}
+ggplot(all.only.frag) + aes(x = step, y = htz_mean, color = rd) + 
+    geom_point(alpha = 0.2) + 
+    geom_smooth(method = "loess")+ theme_clean(base_size = 20) +  
+    facet_grid(cols = vars(fragmentation), rows = vars(strategies))
+```

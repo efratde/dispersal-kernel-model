@@ -1,0 +1,123 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+single <- lapply(all_result_single3, function(x) gsub("[]]", "", x))
+single <- lapply(single, function(x) gsub("[[]", "", x))
+single <- as.data.frame(single)
+
+names(single) <- colnames(all_result_multi2)
+
+single_backup <- single
+```
+
+```{r}
+multi <- lapply(all_result_multi2, function(x) gsub("[]]", "", x))
+multi <- lapply(multi, function(x) gsub("[[]", "", x))
+multi <- as.data.frame(multi)
+
+```
+
+```{r}
+   single[1:4] <- lapply(single[1:4], FUN = as.factor)
+ single[6:16] <- lapply(single[6:16], as.factor)
+ single[5] <- lapply(single[5], as.numeric)
+ single[17:27] <- lapply(single[17:27], as.numeric)
+single[28] <- lapply(single[28], as.factor)
+
+```
+
+```{r}
+single1 <- subset(single, single$...22 != 'NA')
+single2 <- subset(single, is.na(single$...22))
+
+single1$sgs_large_B <- single1$sgs_large_slope
+single1$sgs_large_slope <- single1$sgs_fine_B
+single1$sgs_fine_B <- single1$sgs_fine_slope
+single1$sgs_fine_slope <- single1$...22
+
+single_combined <- rbind(single2, single1)
+```
+
+```{r}
+   multi[1:4] <- lapply(multi[1:4], FUN = as.factor)
+ multi[6:16] <- lapply(multi[6:16], as.factor)
+ multi[5] <- lapply(multi[5], as.numeric)
+ multi[17:27] <- lapply(multi[17:27], as.numeric)
+multi[28] <- lapply(multi[28], as.factor)
+```
+
+```{r}
+multi1 <- subset(multi, sgs_large_B < 1 & sgs_large_B != 0)
+multi2 <- subset(multi, sgs_large_B > 1)
+multi3 <- subset(multi, sgs_large_B == 0)
+multi4 <- subset(multi, is.na(sgs_large_B))
+```
+
+```{r}
+multi4$sgs_large_B <- multi4$sgs_large_slope
+multi4$sgs_large_slope <- multi4$sgs_fine_B
+multi4$sgs_fine_B <- multi4$sgs_fine_slope
+multi4$sgs_fine_slope <- multi4$...22
+```
+
+```{r}
+multi3$fixation. <- multi3$sgs_large_B 
+multi3$sgs_large_B <- multi3$sgs_large_slope
+multi3$sgs_large_slope <- multi3$sgs_fine_B
+multi3$sgs_fine_B <- multi3$sgs_fine_slope
+```
+
+```{r}
+multi2$fixation. <- multi2$sgs_large_B 
+multi2$sgs_large_B <- multi2$sgs_large_slope
+multi2$sgs_large_slope <- multi2$sgs_fine_B
+multi2$sgs_fine_B <- multi2$sgs_fine_slope
+```
+
+```{r}
+
+multi_all <- rbind(multi1, multi2, multi3, multi4)
+
+
+
+
+```
+
+```{r}
+single3 <- subset(single_combined, sgs_large_slope < 0.35)
+
+single3$sgs_large_B <- single3$sgs_large_slope
+single3$sgs_large_slope <- single3$sgs_fine_B
+
+single4 <- subset(single_combined, sgs_large_slope > 0.35)
+
+single5 <- subset(single_combined, is.na(sgs_large_slope))
+
+single_combined2 <- rbind(single3, single4, single5)
+```
+
+```{r}
+all <- rbind(single_combined2, multi_all)
+summary(all)
+
+all2 <- all2[c(-20)]
+summary(all2)
+```
+
+```{r}
+write.csv(all2, "all_010821.csv")
+
+```
+
+```{r}
+all_2nd <- subset(all2, step %% 2 == 0)
+all_3rd <- subset(all2, step %% 3 == 0)
+```
+
+```{r}
+write.csv(all_2nd, "all_2_010821.csv")
+write.csv(all_3rd, "all_3_010821.csv")
+```
