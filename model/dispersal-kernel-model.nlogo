@@ -1,811 +1,462 @@
-extensions [rnd profiler stats]
-breed [ plants plant ] ;; plants haing a relatedness-dependent dispersal strategy. Can only reproduce with other rd.plants
-breed [ seeds seed ]         ;; seeds of both types
+extensions [rnd]
+globals []
+
+breed [ seeds seed ]
+breed [ pollens pollen ] ;; male gametes (i.e., pollen grains)
+breed [ gametes gamete ] ;; female gametes (i.e., ovules)
+breed [ plants plant ]
 
 
-breed [sides side]     ; the four sides of the selection rectangle
-
-
-globals [ fixation_p htz_dispersal plants_data seeds_data global_data patch_number mutations.overall fixation.map loci
-  current-state ; "not-started", "selecting", "waiting-to-drag", "dragging"
-  select-x      ; coordinates for the start of the select box
-  select-y
-  drag-x        ; coordinates for the start of a drag operation
-  drag-y
-  selected      ; agentset of currently selected circles
-]
-
-turtles-own [
-  genotype             ;; A list used to store alleles
-  heterozygosity       ;; heterozygosity levels
-  distance.travelled   ;; Dispersal distance. For plots.
-  bins                 ;; for plotting purposes (to give colors according to heterozygosity levels)
-  adaptation
-  rd_coef
-  maternal.gen.relatedness
-  pollinators
-  progeny
-]
-
-seeds-own [            ;; seeds of both seed-types (no advantage to separating them as agents like with the mature plants)
-  pollination.distance ;; To monitor how the pollination function works
-
-]
-
-links-own [
-  link.relatedness
-  link.length
-]
-
-patches-own [
-  relatedness.patch
-  original.value
-]
-
-to profile
-  setup                  ;; set up the model
-  profiler:reset
-  profiler:start         ;; start profiling
-  repeat 20 [ go ]       ;; run something you want to measure
-  profiler:stop          ;; stop profiling> set x random 3 ]
-  print profiler:report
-end
-
-
-  ;;#################################################################################
-  ;;#################################################################################
-  ;;######################                                     ######################
-  ;;######################              Setup                  ######################
-  ;;######################                                     ######################
-  ;;#################################################################################
-  ;;#################################################################################
+seeds-own [ ms-a ms-b ms-c ms-d ms-e ms-f ms-g ms-h ms-i ms-j ms-k ms-l ms-m ms-n ms-o ms-p ms-q ms-r ms-s ms-t;; 20 diallelic microsatellites (as seeds are diploid)
+  mass ;; seed mass, randomly set at initilization, and during the runs is a function of seed-mass slider and inbreeding levels
+  home-patch ;; the patch where the seed was created (the patch of its' mother plant)
+  inbreeding-load ;; inbreeding level, set to maximum (=4) at initialization, and during the runs it is calculated as a function of homozygosity
+  distance-travelled ;; a variable to store the dispersal distance
+  pop  ;; to which population the seed belongs. Only used during initialization to cluster together plants belonging to the same population
+  rd? ;; relatedness-dependent dispersal?
+  homozygosity] ;; a temp variable used for calculations of inbreeding load
+pollens-own [ allele-a allele-b allele-c allele-d allele-e allele-f allele-g allele-h allele-i allele-j allele-k allele-l allele-m allele-n allele-o allele-p allele-q allele-r allele-s allele-t  ;; 20 alleles (as propagules are haploid)
+  pollinated? ;; a logical helping in the pollination phase to avoid having the same pollen grain pollinate multiple ovules
+  rd?
+  parent] ;; a variable used to prevent self-pollination
+gametes-own [ allele-a allele-b allele-c allele-d allele-e allele-f allele-g allele-h allele-i allele-j allele-k allele-l allele-m allele-n allele-o allele-p allele-q allele-r allele-s allele-t parent pop rd?] ;; same as pollen grains
+plants-own [ ms-a ms-b ms-c ms-d ms-e ms-f ms-g ms-h ms-i ms-j ms-k ms-l ms-m ms-n ms-o ms-p ms-q ms-r ms-s ms-t;; 20 diallelic microsatellites (as seeds are diploid)
+  home-patch ;; inherited from seeds. Used to plot the realized dispersal kernel
+  inbreeding-load ;; inbreeding levels, for plotting
+  distances-list ;; to measure spatial genetic structure
+  distance-travelled ;; to measure spatial genetic structure
+  geographic-distances ;; to measure spatial genetic structure
+  genetic-distances ;; to measure spatial genetic structure
+  pop ;; to which population the seed belongs. Only used during initialization to cluster together plants belonging to the same population
+  rd?
+  homozygosity] ;; to plot inbreeding levels of plants
 
 
 to setup
-  ca ;; clear the workspace
+  ca
   reset-ticks
-  set loci  filter [x -> x mod 2 = 0] range 200
-  ask patches [set pcolor 9.9]
-  if (local-adaptations? or not (fragmentation = "no")) [landscape.setup]
-  ask patches [hatch.seeds.setup ]
-
-  set current-state "not-started"
-  set-default-shape sides "line"
-  set-default-shape seeds "circle"
-  set-default-shape plants "flower"
-  set-default-shape plants "flower"
-  set selected no-turtles
-  set patch_number count patches
-end
-
-to landscape.setup
-    ask patches [
-    if (random-float 1.0 < 0.5) [
-        set pcolor 0]]
-   repeat (10 * autocorrelation) [diffuse pcolor 0.25]
-
-
-end
-
-to hatch.seeds.setup
-        sprout 1 [                                     ;; seeds that haven't randomly died produce one seed each:
-          set breed seeds
-    set size 0.25
-          set genotype n-values 200 [random 2]
-          set heterozygosity calc.heterozygosity
-          set.bins
-          set distance.travelled random-float 3.0
-    set maternal.gen.relatedness random-float 1.0
-          set bins 4
-    if (local-adaptations?) [set adaptation [pcolor] of patch-here]
-        ;set adaptation random-float 9.9
-    ifelse (strategies = "single")
-    [set rd_coef dispersal-relatedness]
-    [set rd_coef (one-of read-from-string (word "[" multi-strategies "]"))]
-  ]
-end
-
-to change.landscape
-    if (ticks mod 5 = 0) [
-  ask n-of (0.1 * patch_number) patches [set pcolor 9.9 ]
-  ask n-of (0.1 * patch_number) patches [set pcolor 0]
-  repeat 3 [diffuse pcolor autocorrelation]]
-end
-
-to crt_tables
-    set htz_dispersal 0
-    set htz_dispersal stats:newtable
-    stats:set-names htz_dispersal ["dispersal distance" "heterozygosity"
-    "mother-offspring relatedness" "rd_coef"]
-    set mutations.overall []
-
-    set plants_data stats:newtable
-  stats:set-names plants_data ["Dispersal distance" "heterozygosity" "maternal relatedness"  "x" "y"
-    "progeny size" "progeny mean dispersal" "among progeny mean relatedness" "progeny mean heterozygosity"
-    "neighbors relatedness1" "neighbors relatedness2" "neighbors relatedness3" "neighbors relatedness4" "neighbors relatedness5"
-    "rd_coef" "adaptation" "patch value" "Fathers to mother mean relatedness" "progeny mean maternal relatedness" "# pollinators" "mean pollination distance"]
-
-;  set seeds_data stats:newtable
-;  stats:set-names seeds_data ["heterozygosity" "dispersal distance" "pollination distance"
-;    "maternal relatedness"  "mother dispersal" "mother heterozygosity" "mother ID" "mother rd coef" "mother adaptation"
-;    "among-sib relatedness" "sib mean dispersal" "sib mean heterozygosity" "progeny size"]
-;
-end
-
-  ;;#################################################################################
-  ;;#################################################################################
-  ;;######################                                     ######################
-  ;;######################          Main procedures            ######################
-  ;;######################                                     ######################
-  ;;#################################################################################
-  ;;#################################################################################
+  ;; create a green background
+  ask patches [ set pcolor 67 + random 8 - random 8 ]
+  repeat 20 [ diffuse pcolor 0.25 ]
+  populations-setup
+  establish
+  end
 
 to go
-  kill.parents
-  if (changing.landscape) [change.landscape]
-  crt_tables
   establish
-  calc.fixation
-
-if (plant_plots and ticks > 2) [
-    plots htz_dispersal plants
-    calc.sgs plants ]
-
-  pollinate
-
-  ifelse (dispersal2)
-    [disperse.seeds2]
-    [disperse.seeds]
-
-  If (check.stop) [stop]
+  if (count plants with [rd? = true] = 0 or count plants with [rd? = false] = 0) [stop]
+  produce-gametes
+  produce-pollen
+  produce-seeds
+  disperse-seeds
   tick
+  sgs
+  plot-sgs
+  kill-parents
 
-end
+  end
 
 
-to establish ;; relatedness-depenedent establishment: more heterozygous seeds have higher establishment probabilities
-   ask patches[
-    if (any? seeds-here) [
-      if (fragmentation != "no")  [ifelse (fragmentation = "black uninhabitable") [if (pcolor < 3) [ask seeds-here [die]]]
-        [if (pcolor > 7) [ask seeds-here [die]]]]]
-
-        if (any? seeds-here) [
-           ifelse (local-adaptations?)
-          [ifelse (coupled = true)
-          [ask min-one-of seeds-here [abs ((heterozygosity * 10) - [pcolor] of patch-here)]
-          [ifelse (abs ((heterozygosity * 10) - [pcolor] of patch-here) > 3) [die] [hatch.plants ]]]
-          [ask min-one-of seeds-here [abs (adaptation - [pcolor] of patch-here)]
-          [ifelse (abs (adaptation - [pcolor] of patch-here) > 3) [die] [hatch.plants ]]]]
-      [ask one-of seeds-here [hatch.plants]]]]
-  ask seeds [die]
-  ;display
-end
-
-to hatch.plants ;; procedure to create plants from seeds
-  hatch 1 [
-    set hidden? false
-    set breed plants
-    set size 1
-    set heterozygosity calc.heterozygosity ;; calculate heterozygosity levels
-    set.bins ;; *PLOTTING RELATED PROCEDURE*
-    ;set rd_coef random-normal (([rd_coef] of .mother + [rd_coef] of .father) / 2) mutations
-    ;set rd_coef random-normal (([rd_coef] of .mother + [rd_coef] of .father) / 2) 0.1
-    set rd_coef [rd_coef] of myself
-    __set-line-thickness 5
-    if (ticks > 1) [ stats:add htz_dispersal (list distance.travelled heterozygosity maternal.gen.relatedness rd_coef)]
-
+to populations-setup ;; begin population setup
+  ;; create relatedness-dependent populations:
+  create-seeds Y / 2 [ ;; create rd pop
+    set shape "dot"
+    setxy random-pxcor random-pycor
+    move-to one-of patches
+    set home-patch patch-here ;; ask each seed to record its' home patch, used later to calculate dispersal distances and spatial genetic structure
+    set ms-a one-of [0 1 2] set ms-b one-of [0 1 2] set ms-c one-of [0 1 2] set ms-d one-of [0 1 2] set ms-e one-of [0 1 2] set ms-f one-of [0 1 2] set ms-g one-of [0 1 2] set ms-h one-of [0 1 2] set ms-i one-of [0 1 2] set ms-j one-of [0 1 2] set ms-k one-of [0 1 2] set ms-l one-of [0 1 2] set ms-m one-of [0 1 2] set ms-n one-of [0 1 2] set ms-o one-of [0 1 2] set ms-p one-of [0 1 2] set ms-q one-of [0 1 2] set ms-r one-of [0 1 2] set ms-s one-of [0 1 2] set ms-t one-of [0 1 2]
+    set rd? true
+    homozygosity-mass
   ]
-end
-
-
-to-report check.stop ;; Stop the simulation if population size reaches a critical thershold of 10%, if more than 90% of the loci are fixated, or if 2000 generations have passed
-  let .stop (ifelse-value
-  (ticks > 2000) [1]
-  (count plants < (patch_number / 20)) [2]
-    (fixation_p > 0.9) [3]
-  [4] )
-  let .output (ifelse-value
-  (.stop = 1) ["Reached 2000 time steps"]
-  (.stop = 2) ["Too few plants left"]
-  (.stop = 3) ["Fixation proportion > 0.9"]
-  (.stop = 4) ["Stop conditions not fullfilled"])
-  ifelse (.stop < 4) [output-print .output report TRUE] [report FALSE]
-end
-
-
-to pollinate
-    ask plants [
-    let .neighbors other plants with [distance myself <= neighborhood-size] ;; make a list of potential donors in distance up to a value set in the main screen
-    let .fathers []
-    if (any? .neighbors) [
-    foreach rnd:weighted-n-of-with-repeats (2 + random-poisson 6) .neighbors [ 1 / e ^ distance myself] ;; here both the number of seeds is chosen (random poisson mean + var = 6) and the donors from the list, based on their distance
-                    [x -> hatch.seed.go self x set .fathers (turtle-set .fathers x)]]
-    ;if (ticks > 1) [write_tables seeds-here .fathers]
-
-
-set pollinators  remove-duplicates sort .fathers
-set progeny seeds-here
+  ;; create relatedness-INdependent populations:
+  create-seeds Y / 2 [ ;; create ri pop
+    set shape "dot"
+    setxy random-pxcor random-pycor
+    move-to one-of patches
+    set home-patch patch-here ;; ask each seed to record its' home patch, used later to calculate dispersal distances and spatial genetic structure
+    set mass random seed-mass ;; give a random mass to each seed
+    ;set ms-a one-of [0 1 2] set ms-b one-of [0 1 2] set ms-c one-of [0 1 2] set ms-d one-of [0 1 2] set ms-e one-of [0 1 2] set ms-f one-of [0 1 2] set ms-g one-of [0 1 2] set ms-h one-of [0 1 2] set ms-i one-of [0 1 2] set ms-j one-of [0 1 2] set ms-k one-of [0 1 2] set ms-l one-of [0 1 2] set ms-m one-of [0 1 2] set ms-n one-of [0 1 2] set ms-o one-of [0 1 2] set ms-p one-of [0 1 2] set ms-q one-of [0 1 2] set ms-r one-of [0 1 2] set ms-s one-of [0 1 2] set ms-t one-of [0 1 2]
+    set rd? false
+    homozygosity-mass
   ]
-  set-current-plot "pollination"
-  histogram [pollination.distance] of seeds
-  display
-end
+end ;; end population setup
 
-to hatch.seed.go [.mother .father]
-  hatch-seeds 1 [
-    set hidden? true ;; hide seeds
-    set size 0.25
-    if (local-adaptations?)
-    [set adaptation one-of (list [adaptation] of .mother  [adaptation] of .father) ] ;; some mutation
-    ;[set adaptation random-normal (([adaptation] of .mother + [adaptation] of .father) / 2) mutations] ;; some mutation
-    set genotype genotyping .mother .father ;; give genotype (procuedure below)
-    if (mutations > 0) [set genotype mutate random-exponential (length loci * mutations)];; mutation procedure (below)
-    set pollination.distance distance .father ;;  *PLOTTING RELATED PROCEDURE*
-    set maternal.gen.relatedness relatedness self .mother;; measure relatedness b/w motherplant and seeds. used to determine dispersal distances
-    set heterozygosity calc.heterozygosity
-    set.bins
-    set rd_coef one-of (list [rd_coef] of .mother [rd_coef] of .father)
-    __set-line-thickness 0.5
+to establish
+  ask patches with [any? seeds-here] [ ;; ask patches with any seeds on them:
+  ask rnd:weighted-one-of seeds-here [ mass ] [
+        hatch-plants 1 [
+          if (rd? = true) [set shape "flower"]
+          if (rd? = false) [set shape "plant"]
+        ]
 
-  ]
-
-end
-
-to disperse.seeds2
-(foreach [-1 0 1] [ z ->
-let .seeds seeds with [rd_coef = z]
-    if (any? .seeds) [
-      let vector sort n-values count .seeds [random-exponential dist]
-      (foreach sort-on [z * maternal.gen.relatedness] .seeds vector [ [x y] -> ask x [set distance.travelled (y + 0.5)
-  rt random 360 ;; choose a random dispersal direction
-        forward distance.travelled]])]])
-end
-
-to disperse.seeds
-  ask plants [
-    let .rd rd_coef
-(foreach sort-on [.rd * maternal.gen.relatedness] seeds-here sort n-values count seeds-here [random-exponential (1 + dist)] [ [x y] -> ask x [set distance.travelled (0.5 + y)
-  rt random 360 ;; choose a random dispersal direction
-      forward distance.travelled] ])]
-  display
-end
-
-
-to kill.parents
-    ask plants [die]
- display
-end
-
-
-  ;;#################################################################################
-  ;;#################################################################################
-  ;;######################                                     ######################
-  ;;######################       Reporters & Cakculators       ######################
-  ;;######################                                     ######################
-  ;;#################################################################################
-  ;;#################################################################################
-
-
-to-report calc.heterozygosity
-  report length(filter [x -> ( item x genotype !=  item (x + 1) genotype)] loci) / length loci
-end
-
-
-to calc.fixation
-    set-current-plot ("fixation")
+    set-current-plot "mass of established"
     clear-plot
+    set-plot-pen-color black histogram ([mass] of seeds-here )
+    set-plot-pen-color red plotxy ( [mass] of self ) 1
 
-  set fixation.map []
-  foreach loci [x -> let y fixation x
-   set fixation.map insert-item (position x loci) fixation.map y
- plotxy position x loci y]
-  set fixation_p length(filter [x -> x = 1 or x = 0] fixation.map) / 100
+    ask other seeds-here [die]
+    die
+  ]]
+ ask plants [
+ if (random-float 1.0 > 1 - random-extinction) [die] ; randomly kill random-extinction % of all plants
+  ]
+  ask patches with [count plants-here < 1] [set pcolor brown] ; color patches with no plants in brown
+  ask patches with [count plants-here = 1] [set pcolor green + 2] ; color patches with plants in green
+  display ; update the display
+end
+
+to genotype
+      ;; to inherit genome:
+      ifelse ([ms-a] of myself = 2) [set allele-a 1] ;; if the plant producing the gamete is homozygote 11 in microsattelite a give the gamete allele 1 in this microsattelite
+      [if ([ms-a] of myself = 1) [set allele-a (one-of [1 0])]] ;; if it is heterozygote, give either 1 or 0 randomly
+                                                                ;; if both above conditions are not satisfied, 0 will be given automatically
+    ;; the same as above, for the rest of the microsattelites:
+      ifelse ([ms-b] of myself = 2) [set allele-b 1]
+      [if ([ms-b] of myself = 1) [set allele-b (one-of [1 0])]]
+      ifelse ([ms-c] of myself = 2) [set allele-c 1]
+      [if ([ms-c] of myself = 1) [set allele-c (one-of [1 0])]]
+      ifelse ([ms-d] of myself = 2) [set allele-d 1]
+      [if ([ms-d] of myself = 1) [set allele-d (one-of [1 0])]]
+      ifelse ([ms-e] of myself = 2) [set allele-e 1]
+      [if ([ms-e] of myself = 1) [set allele-e (one-of [1 0])]]
+      ifelse ([ms-f] of myself = 2) [set allele-f 1]
+      [if ([ms-f] of myself = 1) [set allele-f (one-of [1 0])]]
+      ifelse ([ms-g] of myself = 2) [set allele-g 1]
+      [if ([ms-g] of myself = 1) [set allele-g (one-of [1 0])]]
+      ifelse ([ms-h] of myself = 2) [set allele-h 1]
+      [if ([ms-h] of myself = 1) [set allele-h (one-of [1 0])]]
+      ifelse ([ms-i] of myself = 2) [set allele-i 1]
+      [if ([ms-i] of myself = 1) [set allele-i (one-of [1 0])]]
+
+      ifelse ([ms-j] of myself = 2) [set allele-j 1]
+      [if ([ms-j] of myself = 1) [set allele-j (one-of [1 0])]]
+      ifelse ([ms-k] of myself = 2) [set allele-k 1]
+      [if ([ms-k] of myself = 1) [set allele-k (one-of [1 0])]]
+      ifelse ([ms-l] of myself = 2) [set allele-l 1]
+      [if ([ms-l] of myself = 1) [set allele-l (one-of [1 0])]]
+      ifelse ([ms-m] of myself = 2) [set allele-m 1]
+      [if ([ms-m] of myself = 1) [set allele-m (one-of [1 0])]]
+      ifelse ([ms-n] of myself = 2) [set allele-n 1]
+      [if ([ms-n] of myself = 1) [set allele-n (one-of [1 0])]]
+      ifelse ([ms-o] of myself = 2) [set allele-o 1]
+      [if ([ms-o] of myself = 1) [set allele-o (one-of [1 0])]]
+      ifelse ([ms-p] of myself = 2) [set allele-p 1]
+      [if ([ms-p] of myself = 1) [set allele-p (one-of [1 0])]]
+      ifelse ([ms-q] of myself = 2) [set allele-q 1]
+      [if ([ms-q] of myself = 1) [set allele-q (one-of [1 0])]]
+      ifelse ([ms-r] of myself = 2) [set allele-r 1]
+      [if ([ms-r] of myself = 1) [set allele-r (one-of [1 0])]]
+      ifelse ([ms-s] of myself = 2) [set allele-s 1]
+      [if ([ms-s] of myself = 1) [set allele-s (one-of [1 0])]]
+      ifelse ([ms-t] of myself = 2) [set allele-t 1]
+      [if ([ms-t] of myself = 1) [set allele-t (one-of [1 0])]]
+end
+
+to produce-gametes ;; beginning of to-produce-gametes
+    ask plants [ ;; ask all plants
+    hatch-gametes random-poisson gametes-number [ ;; to produce X gametes. X is a number drawn from a poisson distribution (chose it because it's appropriate for discrete data) with mean and sd determined by a slider
+    set shape "x" ;; set shape to X
+    genotype
+    set parent myself ;; keep track of who the parent plant is. Will be used later to prevent self-pollination.
+  ]]
+end ;; end of to produce-gametes
+
+to produce-pollen ;; beginning of to produce-pollen
+    ask plants [ ;; ask all plants
+    hatch-pollens random-poisson gametes-number * 2 [ ;; to produce X pollen grains. X is a number drawn from a poisson distribution (chose it because it's appropriate for discrete data) with mean and sd determined by a slider
+    set shape "dot" ;; set shape to O
+    set pollinated? false ;; create a logical variable that tells whether this grain was alredy used for pollination. Set it initially to false. This is later used to make sure each grain is only used once.
+    genotype
+    set parent myself ;; keep track of who the parent plant is. Will be used later to prevent self-pollination.
+   ]]
+end ;; end of to produce-pollen
+
+to produce-seeds ;; beginning of to produce seeds
+ask plants [ ;; ask each plant
+    let the-patches patch-set ( list ;; to make the following list of patches:
+      (up-to-n-of number-of-donors neighbors with [any? plants with [rd? = [rd?] of self]]) ;; n neighboring plants, where n is the number of donors as set in the main screen
+      (up-to-n-of (number-of-donors / 2) patches with [(distance myself) >= 2  and (distance myself) < neighborhood-size / 2  and any? plants with [rd? = [rd?] of self]]) ;; n/2 plants in distance class 2, which is a function of the neighborhood size as set in the main screen
+      (up-to-n-of (number-of-donors / 4) patches with [(distance myself) >= 3  and (distance myself) < neighborhood-size  and any? plants with [rd? = [rd?] of self]]) ) ;; n/4 plants in distance class 3, which is a function of the neighborhood size as set in the main screen
+    let the-pollens [pollens-here with [rd? = [rd?] of self]] of the-patches ;; take all pollen grains found on the patches in the above-mentioned patches-list
+    let the-pollens-set turtle-set the-pollens ;; and put them in an agentset
+
+ask gametes with [parent = myself] [ ;; each plant asks each of its gametes
+      let pollinator one-of the-pollens-set with [pollinated? = false and parent != [ parent ] of myself] ;; to find one pollen grain from the pollens agentset, who has not been used for pollination before, and who was not produced by this plant
+      hatch-seeds 1 [ ;; and to produce one seed
+      if (pollinator = nobody) [die] ;; if there is no pollen donor, the seed dies
+      set shape "dot" ;; set seed's shape
+        ;; set genotype: sum the alleles in each locus of the gamete and of the pollen grain
+        set ms-a [allele-a] of myself + [allele-a] of pollinator
+        set ms-b [allele-b] of myself + [allele-b] of pollinator
+        set ms-c [allele-c] of myself + [allele-c] of pollinator
+        set ms-d [allele-d] of myself + [allele-d] of pollinator
+        set ms-e [allele-e] of myself + [allele-e] of pollinator
+        set ms-f [allele-f] of myself + [allele-f] of pollinator
+        set ms-g [allele-g] of myself + [allele-g] of pollinator
+        set ms-h [allele-h] of myself + [allele-h] of pollinator
+        set ms-i [allele-i] of myself + [allele-i] of pollinator
+        set ms-j [allele-j] of myself + [allele-j] of pollinator
+        set ms-k [allele-k] of myself + [allele-k] of pollinator
+        set ms-l [allele-l] of myself + [allele-l] of pollinator
+        set ms-m [allele-m] of myself + [allele-m] of pollinator
+        set ms-n [allele-n] of myself + [allele-n] of pollinator
+        set ms-o [allele-o] of myself + [allele-o] of pollinator
+        set ms-p [allele-p] of myself + [allele-p] of pollinator
+        set ms-q [allele-q] of myself + [allele-q] of pollinator
+        set ms-r [allele-r] of myself + [allele-r] of pollinator
+        set ms-s [allele-s] of myself + [allele-s] of pollinator
+        set ms-t [allele-t] of myself + [allele-t] of pollinator
+
+        ask pollinator [set pollinated?  True] ;; set the pollen-grain's as pollinated, so it will not be used for pollination again
+        homozygosity-mass]
+        die ;; the gamete that produced the seed dies.
+  ]
+  ]
+end ;; end of to produce-seeds
+
+to homozygosity-mass
+      set homozygosity 0 ;; setup a homozygosity variable, set its level to 1.
+    ;; look at each locus. If the sum of both alleles is either 0 or 2, it means it is homozygous in this locus. In such case, add 1 to homozygosity level
+    if (ms-a = 0 or ms-a = 2) [set homozygosity homozygosity + 0.5 ]
+    if (ms-b = 0 or ms-b = 2) [set homozygosity homozygosity + 0.5 ]
+    if (ms-c = 0 or ms-c = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-d = 0 or ms-d = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-e = 0 or ms-e = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-f = 0 or ms-f = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-g = 0 or ms-g = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-h = 0 or ms-h = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-i = 0 or ms-i = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-j = 0 or ms-j = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-k = 0 or ms-k = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-l = 0 or ms-l = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-m = 0 or ms-m = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-n = 0 or ms-n = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-o = 0 or ms-o = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-p = 0 or ms-p = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-q = 0 or ms-q = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-r = 0 or ms-r = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-s = 0 or ms-s = 2)  [set homozygosity homozygosity + 0.5 ]
+    if (ms-t = 0 or ms-t = 2)  [set homozygosity homozygosity + 0.5 ]
+
+    if (rd? = true) [
+          set mass ( random-normal (seed-mass * e ^ ( - (random-poisson homozygosity) / Z)) 1) ]
+
+    if (rd? = false) [
+          set mass ( random-normal (seed-mass * e ^ ( - ( random-poisson 5.5 ) / Z)) 1 )]
+        if (mass < 0 ) [set mass 0 ]
+        ;; color seeds according to their homozygosity levels, so they can be tracked in the different plots:
+      ifelse (homozygosity >= 1 and homozygosity <= 2 ) [set color blue set inbreeding-load 0]
+      [ifelse (homozygosity >= 3 and homozygosity <= 4 ) [set color green set inbreeding-load 1]
+      [ifelse (homozygosity >= 5 and homozygosity <= 6 ) [set color red set inbreeding-load 2]
+      [ifelse (homozygosity >= 7 and homozygosity <= 8 ) [set color orange  set inbreeding-load 3]
+      [if (homozygosity >= 9 and homozygosity <= 10 ) [set color yellow  set inbreeding-load 4]]]]]
 
 end
 
-to-report fixation [x]
-    ifelse (all? plants [item x genotype = item (x + 1) genotype]) [report 0] [
-    report (count plants with [item x genotype = item (x + 1) genotype]) / count plants ]
-end
+to disperse-seeds ;; beginning of to disperse
+  ask pollens [die] ;; kill all pollen grains
+    ask seeds [ ;; ask each seed
+   set home-patch patch-here ;; to record their home-patch (to calculate dispersal distance later on)
+    if (mass > 0) [ ;; if the seed has a mass of 0 or less, it does not disperse
+    rt random 360 ;; choose a random dispersal direction
+  forward  dispersal-distance  / sqrt (mass) ;; move (X / mass) units. X is a number drawn from a normal distribution who's mean and var are controlable by a slider
+      set distance-travelled distancexy ([pxcor] of home-patch) ([pycor] of home-patch) ;; after dispersal, calculate dispersal distance by measuring the distance between the current patch and the home patch
+  ]]
+end ;; end of to disperse
 
-to-report genotyping [.mother .father]
-  let .genotype []
-  foreach loci [x ->
-  ifelse (random 2 < 1)
-    [set .genotype lput  one-of (list [item x genotype] of .father  [item (x + 1 ) genotype] of .father)  .genotype
-      set .genotype lput one-of (list [item x genotype] of .mother  [item (x + 1 ) genotype] of .mother)  .genotype]
+to kill-parents ;; beginning of to kill-parents
+  ask plants [die] ;; ask all seeds to die
+end ;; end of kill-parents
 
-[set .genotype lput one-of (list [item x genotype] of .mother  [item (x + 1 ) genotype] of .mother)  .genotype
-set .genotype lput  one-of (list [item x genotype] of .father  [item (x + 1 ) genotype] of .father)  .genotype]
+to sgs ;; beginning of to sgs - to calculate spatial genetic structure
+ask plants [ ;; ask each plant
+  let other-plants (other plants with [rd? = [rd?] of self]) ;; make a temporary list of all other plants
+  set genetic-distances [] ;; set an empty list of genetic distances
+  set geographic-distances [] ;; set an empty list of geographic distances
+  set distances-list [] ;; set an empty list of distances
+
+  foreach sort other-plants [ [candidate] -> ;; go through all the plants in the other-plants list, one by one
+    let genetic-distance 0 ;; make a temp variable named genetic-distance, set it to 0
+
+    ifelse (abs([ms-a] of candidate - ms-a) = 2) [set genetic-distance genetic-distance + (1 / 20)] ;; if both plants are homozygote, but each one has different alleles (so one is 00 and one is 22), add 1 to the value of genetic distance
+    [if (abs([ms-a] of candidate - ms-a) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]] ;; if both plants have only one allele in common, add 0.5 to the value of genetic distance. If both conditions are not fulfilled, genetic distance will remain in its' previous value
+                                                                                                   ;; repeat for all microsattelites:
+    ifelse (abs([ms-b] of candidate - ms-b) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-b] of candidate - ms-b) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-c] of candidate - ms-c) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-c] of candidate - ms-c) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-d] of candidate - ms-d) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-d] of candidate - ms-d) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-e] of candidate - ms-e) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-e] of candidate - ms-e) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-f] of candidate - ms-f) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-f] of candidate - ms-f) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-g] of candidate - ms-g) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-g] of candidate - ms-g) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-h] of candidate - ms-h) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-h] of candidate - ms-h) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-i] of candidate - ms-i) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-i] of candidate - ms-i) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-j] of candidate - ms-j) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-j] of candidate - ms-j) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-k] of candidate - ms-k) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-k] of candidate - ms-k) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-l] of candidate - ms-l) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-l] of candidate - ms-l) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-m] of candidate - ms-m) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-m] of candidate - ms-m) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-n] of candidate - ms-n) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-n] of candidate - ms-n) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-o] of candidate - ms-o) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-o] of candidate - ms-o) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-p] of candidate - ms-p) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-p] of candidate - ms-p) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-q] of candidate - ms-q) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-q] of candidate - ms-q) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-r] of candidate - ms-r) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-r] of candidate - ms-r) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-s] of candidate - ms-s) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-s] of candidate - ms-s) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-t] of candidate - ms-t) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-t] of candidate - ms-t) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    set genetic-distances lput precision (genetic-distance) 3 genetic-distances ;; add the calculated genetic distance to a list of all genetic distances
+    set geographic-distances lput precision ([distance myself] of candidate) 3 geographic-distances ;; calculate the geographic distance between the two plants, and add this value to a list of all geographic distances
+    set distances-list (list genetic-distances geographic-distances) ;; make a list of the previous two lists
+
+  ]
+
+
 ]
-    report .genotype
-end
 
-to-report relatedness [genotype1 genotype2]
-  let .relatedness 100
-  foreach loci [x -> set .relatedness .relatedness - (0.5 * abs( ([item x genotype] of genotype1 + [item (x + 1) genotype] of genotype1 ) -
-    ([item x genotype] of genotype2 + [item (x + 1) genotype] of genotype2 )))  ]
-  set .relatedness (.relatedness / 100 )
-    report .relatedness
-end
+end ;; end of to-sgs
 
-to-report mutate [.mutation.amount]
-  if (.mutation.amount > length loci) [set .mutation.amount length loci]
-  let .genotype genotype
-  let .mutating.loci n-of .mutation.amount loci;; randomly choose loci to mutate (according to the number chosen above)
-  foreach .mutating.loci [x -> ;; change each of the chosen loci's values to 1 (making it heterozygous)
-    let i random 2
-    let j 1 - i
-    ;set .genotype replace-item (x + i) .genotype ifelse-value (item (x + i) .genotype = 0) [1] [0]]
-    set .genotype replace-item (x + i) .genotype 1
-    set .genotype replace-item (x + j) .genotype 0]
-  set mutations.overall lput (length .mutating.loci) mutations.overall ;; to follow how this function is behaving, using this value for the plot
-  report .genotype
-end
+to plot-sgs
+  set-current-plot "rd spatial genetic structure" ;; to plot the spatial genetic structure of an individual:
+  ask plants with [rd? = true] [
 
-to set.bins ;; use color codes to visualize dynamics
-  set bins (ifelse-value
-        (heterozygosity <= 0.2) [0] ;; most homozygous
-        (heterozygosity <= 0.4) [1] ;;
-        (heterozygosity <= 0.6) [2] ;;
-        (heterozygosity <= 0.8) [3] ;;
-         [4]) ;; most heterozygous
-  set color (ifelse-value ;; color codes for figures
-      (bins = 0) [red]
-      (bins = 1) [orange]
-      (bins = 2) [43]
-      (bins = 3) [green]
-       [blue])
-end
+  let m 0 ;; make a temp variable, for plotting purposes
+  while [m < length distances-list ] ;; m is the same size as the above-mentioned lists
 
-
-  ;;#################################################################################
-  ;;#################################################################################
-  ;;######################                                     ######################
-  ;;######################           SGS & Plots               ######################
-  ;;######################                                     ######################
-  ;;#################################################################################
-  ;;#################################################################################
-
-to calc.sgs [.plants];; to plot spatial genetic structure
-
-  let large_tbl stats:newtable
-  let fine_tbl stats:newtable
-
-
-  foreach (list fine_tbl large_tbl) [ x ->
-    stats:set-names x ["relatednes" "geo distance"]]
-
-    ask up-to-n-of 20 .plants [
-    ask up-to-n-of 20 other .plants with [distance myself < sgs.scale]
-    [stats:add fine_tbl (list relatedness self myself  distance myself )]]
-
-    ask up-to-n-of 20 .plants [
-    ask up-to-n-of 20 other .plants with [distance myself > sgs.scale]
-      [stats:add large_tbl (list relatedness self myself  distance myself )]]
-show stats:get-data-as-list large_tbl
-  let scale_large max stats:get-observations large_tbl 1
-
-
-  (foreach (list "fine-scale" "large-scale") (list fine_tbl large_tbl) (list "fine" "large") (list 0 sgs.scale) (list sgs.scale scale_large) [ [x y c a b] ->
- set-current-plot x
-  clear-plot
-
-    set-plot-y-range 0.5 1
-    set-plot-x-range a b
-    set-plot-pen-interval 0.1
-    set-current-plot-pen "x"
-
-  (foreach stats:get-data-as-list y [z -> plotxy item 1 z item 0 z])
-
-  set-current-plot-pen "mean"
-  let coefs stats:regress-on y [0 1]
-  foreach (range a b 0.1)  [t -> plotxy t ((item 0 coefs) + (item 1 coefs) * t )]
-
-
-  set-current-plot "sgs coefs dynamics"
-  let .Sx standard-deviation stats:get-observations y 1
-  let .Sy standard-deviation stats:get-observations y 0
-  let .Sx.Sy .Sx / .Sy
-
-  set-current-plot-pen c
-  plotxy ticks ((item 1 coefs  ) * .Sx.Sy )
-  ])
-end
-
-
-to plots [_htz_dispersal _plants] ;; plots
-
-  set-current-plot "Environmental variability"
-
-  clear-plot
-  set-plot-x-range 0 10
-  set-histogram-num-bars 10
-  set-current-plot-pen "default"
-  histogram [pcolor] of patches
-  ;;#########################################
-  ;;#########################################
-
-  if (ticks > 1) [
-
-  ;;#########################################
-  ;;#########################################
-
-  set-current-plot ("fixation 2")
-    plotxy ticks fixation_p
-
-
-
-  ;;#########################################
-  ;;#########################################
-
-
-  set-current-plot ("mutation")
-
-  set-plot-pen-interval 0.5
-  set-histogram-num-bars 20
-    histogram mutations.overall
-
-
-  ;;#########################################
-  ;;#########################################
-
-
-  set-current-plot ("plants realized kernel" )
-
-  clear-plot
-  set-plot-y-range 0 count _plants
-  set-plot-pen-interval 0.5
-  set-histogram-num-bars 20
-  histogram [distance.travelled] of _plants
-
-  ;;#########################################
-  ;;#########################################
-
-   (foreach (list 4 3 2 1 0) (list blue green 43 orange red) [[x y] ->
-      let .plants _plants with [bins = x]
-if (any? .plants) [
-  ;;#########################################
-  ;;#########################################
-
-      set-current-plot "plants quantities"
-
-      set-plot-y-range 0 count _plants
-      set-current-plot-pen  (word x)
-        set-plot-pen-color y
-          set-plot-pen-interval 0.5
-  set-histogram-num-bars 20
-      plotxy ticks count .plants
-
-  ;;#########################################
-  ;;#########################################
-
-        if (ticks mod 2 = 0) [
-foreach [-1 0 1] [z ->
-set-current-plot (word "plants mean dispersal distance coef = " z)
-let ..plants .plants with [rd_coef = z]
-if (any? ..plants) [
-set-current-plot-pen (word x)
-  set-plot-pen-color y
-              plotxy ticks mean [distance.travelled] of ..plants
-
-  set-current-plot "plants mean dispersal distance"
-            let ...plants _plants with [rd_coef = z]
-              if (any? ...plants) [
-  set-current-plot-pen (word z)
-              plotxy ticks  mean [distance.travelled] of ...plants
-            ]]
-      ]]
-
-  ;;#########################################
-  ;;#########################################
-
-      set-current-plot (word "plants realized kernel heterozygosity = " x)
-      clear-plot
-      set-plot-y-range 0 count .plants + 1
-
-      set-plot-x-range 0 10
-      set-current-plot-pen "mean"
-      set-histogram-num-bars 20
-      set-plot-pen-interval 0.5
-      set-plot-pen-color y
-      histogram [distance.travelled] of .plants
-    ]])
-
-  ;;#########################################
-  ;;#########################################
-
-  set-current-plot "Dispersal quantiles"
-
-
-  set-current-plot-pen "median"
-  plotxy ticks stats:quantile _htz_dispersal "dispersal distance" 50
-  set-current-plot-pen "0.25"
-  plotxy ticks stats:quantile _htz_dispersal "dispersal distance" 25
-  set-current-plot-pen "0.75"
-  plotxy ticks stats:quantile _htz_dispersal "dispersal distance" 75
-
-  ;;#########################################
-  ;;#########################################
-
-  set-current-plot "plants heterozygosity"
-
-  clear-plot
-  set-plot-x-range 0 1
-  set-plot-pen-interval 0.5
-  set-histogram-num-bars 20
-  histogram [heterozygosity] of _plants
-
-  ;;#########################################
-  ;;#########################################
-
-  set-current-plot "heterozygosity dispersal plants"
-
-  clear-plot
-  set-plot-x-range 0 1
-  set-current-plot-pen "x"
-  foreach stats:get-data-as-list _htz_dispersal  [x ->        plotxy item 1 x item 0 x]
-
-     set-current-plot-pen "mean"
-      let coefs stats:regress-on _htz_dispersal ["dispersal distance" "heterozygosity"]
-    (foreach (range 0 1 0.01) [t -> plotxy t (item 0 coefs + item 1 coefs * t )])
-
-
-  ;;#########################################
-  ;;#########################################
-
-  set-current-plot "Heterozygosity median SE"
-
-  set-plot-y-range min [heterozygosity] of _plants max [heterozygosity] of _plants
-  set-current-plot-pen "median"
-  plotxy ticks stats:quantile _htz_dispersal "heterozygosity" 50
-  set-current-plot-pen "0.25"
-  plotxy ticks stats:quantile _htz_dispersal "heterozygosity" 25
-    set-current-plot-pen "0.75"
-  plotxy ticks stats:quantile _htz_dispersal "heterozygosity" 75
-
-  ;;#########################################
-  ;;#########################################
-if (ticks mod 2 = 0) [
-  set-current-plot "heterozygosity dispersal over time"
-
-    plotxy ticks item 1 stats:regress-on _htz_dispersal ["dispersal distance" "heterozygosity"]
+  [plotxy item m geographic-distances item m genetic-distances ;; go over each row in the list, and plot its' position on a scatter-plot, where x is the geographic distance and y is the genetic distance.
+    set m m + 1] ;; move to the next row
   ]
-  ]
+    set-current-plot "ri spatial genetic structure" ;; to plot the spatial genetic structure of an individual:
+  ask plants with [rd? = false][
 
+  let m 0 ;; make a temp variable, for plotting purposes
+  while [m < length distances-list ] ;; m is the same size as the above-mentioned lists
 
-  ;;#########################################
-  ;;#########################################
-
-
-
-  set-current-plot "mother-offspring relatedness"
-  clear-plot
-  let .min min stats:get-observations _htz_dispersal 2
-  let .max max stats:get-observations _htz_dispersal 2
-  set-plot-x-range .min .max
-  foreach stats:get-data-as-list _htz_dispersal  [x -> plotxy item 2 x item 0 x ]
-
-     set-current-plot-pen "mean"
-      let coefs stats:regress-on _htz_dispersal ["dispersal distance" "mother-offspring relatedness"]
-    (foreach (range .min .max 0.01) [t -> plotxy t (item 0 coefs + item 1 coefs * t )])
-
-
-  ;;#########################################
-  ;;#########################################
-
-
-set-current-plot "#plants by rd-strategy"
-
-  (foreach [-1 0 1] ["-1" "0" "1"] [[x y] -> if (any? plants with [rd_coef = x]) [set-current-plot-pen y plotxy ticks count plants with [rd_coef = x]]])
-
-
-  ;;#########################################
-  ;;#########################################
-
-
-  set-current-plot "mother-offspring relatedness histogram"
-  clear-plot
-  set-plot-x-range 0 1
-  set-plot-pen-interval 0.5
-  set-histogram-num-bars 20
-  histogram [maternal.gen.relatedness] of _plants
-
-end
-
-
-
-  ;;#################################################################################
-  ;;#################################################################################
-  ;;######################                                     ######################
-  ;;######################           Interactive               ######################
-  ;;######################                                     ######################
-  ;;#################################################################################
-  ;;#################################################################################
-
-
-to go2
-  ; we use a different procedure depending on which state we're in
-  ; the procedures will update the `current-state` to the next value as the user clicks
-  (ifelse
-    (current-state = "not-started")     [ start-selecting ]
-    (current-state = "selecting")       [ handle-selecting ]
-  )
-end
-
-to start-selecting
-
-  if mouse-down? [
-    ; on the first click we see, we record the mouse position as the start of selection
-    set select-x mouse-xcor
-    set select-y mouse-ycor
-    set current-state "selecting"
+  [plotxy item m geographic-distances item m genetic-distances ;; go over each row in the list, and plot its' position on a scatter-plot, where x is the geographic distance and y is the genetic distance.
+    set m m + 1] ;; move to the next row
   ]
 end
 
-to handle-selecting
-  ifelse mouse-down? [
-    select select-x select-y mouse-xcor mouse-ycor]
-  [ask sides [die]
-    make-plot selected
-    set current-state "not-started"]
-  display
-end
 
-to deselect
-  ask sides [ die ]
-  ask selected [   set color (ifelse-value ;; color codes for figures
-      (bins = 0) [red]
-      (bins = 1) [orange]
-      (bins = 2) [43]
-      (bins = 3) [green]
-       [blue]) ]
-  set current-state "not-started"
-end
+to-report ind-sgs [plant-a candidate] ;; make a reporter so I can monitor the calculation of the sgs.
 
-to select [x1 y1 x2 y2]
-  make-side x1 y1 x2 y1
-  make-side x1 y1 x1 y2
-  make-side x1 y2 x2 y2
-  make-side x2 y1 x2 y2
-  set selected (turtle-set selected turtles with [selected? xcor ycor] selected)
-  ask selected [ set color red ]
-end
 
-to make-side [x1 y1 x2 y2]
-  create-sides 1 [
-    set color gray
-    setxy (x1 + x2) / 2
-          (y1 + y2) / 2
-    facexy x1 y1
-    set size 2 * distancexy x1 y1
-  ]
-end
+  let genetic-distance 0
+  let geographic-distance 0
 
-to-report selected? [x y]
-  let y-max max [ycor] of sides  ; largest ycor is where the top is
-  let y-min min [ycor] of sides  ; smallest ycor is where the bottom is
-  let x-max max [xcor] of sides  ; largest xcor is where the right side is
-  let x-min min [xcor] of sides  ; smallest xcor is where the left side is
-  ; report whether the input coordinates are within the rectangle
-  report x >= x-min and x <= x-max and
-         y >= y-min and y <= y-max
-end
+ask plant-a [
 
-to make-plot [.selected]
-      set-current-plot "selected"
 
-  (ifelse
-  (what-to-plot = "sgs") [
-     clear-plot
-      let .list []
-       set-current-plot-pen "x"
-            ask .selected [
-        create-links-with other .selected [
-          set link.relatedness relatedness end1 end2
-          set link.length link-length
-          plotxy link-length link.relatedness
-          set .list lput (list link.relatedness link-length) .list
-      ]]
+    ifelse (abs([ms-a] of candidate - ms-a) = 2) [set genetic-distance genetic-distance + (1 / 20)] ;; if both plants are homozygote, but each one has different alleles (so one is 00 and one is 22), add 1 to the value of genetic distance
+    [if (abs([ms-a] of candidate - ms-a) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]] ;; if both plants have only one allele in common, add 0.5 to the value of genetic distance. If both conditions are not fulfilled, genetic distance will remain in its' previous value
+                                                                                                   ;; repeat for all microsattelites:
+    ifelse (abs([ms-b] of candidate - ms-b) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-b] of candidate - ms-b) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
 
-    if (length .list > 10) [
-      set-current-plot-pen "mean"
-        let coefs stats:regress-on stats:newtable-from-row-list .list [0 1]
-        (foreach (range min [link.length] of links max [link.length] of links 0.1) [t -> plotxy t ((item 0 coefs ) + ( item 1 coefs * t) ) ])]
-      ask links [die]
-    ]
-  [set-plot-pen-mode 1
-      set-plot-x-range 0 1
-      set-plot-pen-interval 0.05
-      (ifelse
-  (what-to-plot = "mother-offspring") [histogram [maternal.gen.relatedness] of .selected]
-      (what-to-plot = "adaptation") [histogram [adaptation / 10] of .selected]
-      (what-to-plot = "heterozygosity") [histogram [heterozygosity] of .selected]
-  (what-to-plot = "dispersal distances") [set-plot-x-range 0 10 set-plot-pen-interval 0.5 histogram [distance.travelled] of .selected])])
+    ifelse (abs([ms-c] of candidate - ms-c) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-c] of candidate - ms-c) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-d] of candidate - ms-d) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-d] of candidate - ms-d) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-e] of candidate - ms-e) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-e] of candidate - ms-e) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-f] of candidate - ms-f) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-f] of candidate - ms-f) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-g] of candidate - ms-g) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-g] of candidate - ms-g) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-h] of candidate - ms-h) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-h] of candidate - ms-h) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-i] of candidate - ms-i) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-i] of candidate - ms-i) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-j] of candidate - ms-j) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-j] of candidate - ms-j) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-k] of candidate - ms-k) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-k] of candidate - ms-k) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-l] of candidate - ms-l) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-l] of candidate - ms-l) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-m] of candidate - ms-m) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-m] of candidate - ms-m) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-n] of candidate - ms-n) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-n] of candidate - ms-n) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-o] of candidate - ms-o) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-o] of candidate - ms-o) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-p] of candidate - ms-p) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-p] of candidate - ms-p) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-q] of candidate - ms-q) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-q] of candidate - ms-q) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-r] of candidate - ms-r) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-r] of candidate - ms-r) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-s] of candidate - ms-s) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-s] of candidate - ms-s) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+    ifelse (abs([ms-t] of candidate - ms-t) = 2) [set genetic-distance genetic-distance + (1 / 20)]
+    [if (abs([ms-t] of candidate - ms-t) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+
+
+set geographic-distance distance candidate
+ ]
+let output (word "geographic: " precision geographic-distance 3 " genetic: " precision genetic-distance 3)
+
+  report output
 
 end
-
-
-
-  ;;#################################################################################
-  ;;#################################################################################
-  ;;######################                                     ######################
-  ;;######################           Output data               ######################
-  ;;######################                                     ######################
-  ;;#################################################################################
-  ;;#################################################################################
-
-
-to write_tables [.progeny .fathers]
-
-  let progeny_size count .progeny
-  let progeny_mean_dispersal mean [distance.travelled] of .progeny
-  let progeny_mean_M-O_relatedness mean [maternal.gen.relatedness] of .progeny
-  let progeny_mean_heterozygosity mean [heterozygosity] of .progeny
-  let radius1 mean map [x -> relatedness self x] ([self] of plants in-radius 1 )
-  let radius2 mean map [x -> relatedness self x] ([self] of plants in-radius 2 )
-  let radius3 mean map [x -> relatedness self x] ([self] of plants in-radius 3 )
-  let radius4 mean map [x -> relatedness self x] ([self] of plants in-radius 4 )
-  let radius5 mean map [x -> relatedness self x] ([self] of plants in-radius 5 )
-  let fathers.relatedness mean map [x -> relatedness self x] .fathers
-  let .tmp []
-  ask .progeny [ask other .progeny [set .tmp lput relatedness self myself .tmp]]
-  let among-progeny-relatedness mean .tmp
-  let patch_color pcolor
-  let pollinators_mean_distance mean map [x -> distance x] .fathers
-  let count_pollinators sum sort remove-duplicates .fathers
-    stats:add plants_data (list distance.travelled progeny_mean_heterozygosity maternal.gen.relatedness xcor ycor
-    progeny_size progeny_mean_dispersal among-progeny-relatedness progeny_mean_heterozygosity radius1
-    radius2 radius3 radius4 radius5 rd_coef adaptation patch_color fathers.relatedness progeny_mean_M-O_relatedness count_pollinators pollinators_mean_distance)
-end
-
-;to output.setup
-;  let progeny_mean_heterozygosity []
-;  let progeny_size []
-;  let progeny_mean_dispersal []
-;  let among-progeny-relatedness []
-;  let radius1 []
-;  let radius2 []
-;  let radius3 []
-;  let radius4 []
-;  let radius5 []
-;  let fathers.relatedness []
-;  let progeny_mean_M-O_relatedness []
-;  let count_pollinators []
-;  let pollinators_mean_distance []
-;end
-;
-;to output.data [progeny .fathers]
-;  set progeny_size lput count progeny progeny_size
-;  set progeny_mean_dispersal lput mean [distance.travelled] of progeny progeny_mean_dispersal
-;  set progeny_mean_M-O_relatedness lput mean [maternal.gen.relatedness] of progeny progeny_mean_M-O_relatedness
-;  set progeny_mean_heterozygosity lput mean [heterozygosity] of progeny progeny_mean_heterozygosity
-;  set radius1 lput mean map [x -> relatedness self x] ([self] of plants in-radius 1 ) radius1
-;  set radius2 lput mean map [x -> relatedness self x] ([self] of plants in-radius 2 )  radius2
-;  set radius3 lput mean map [x -> relatedness self x] ([self] of plants in-radius 3 ) radius3
-;  set radius4 lput mean map [x -> relatedness self x] ([self] of plants in-radius 4 ) radius4
-;  set radius5 lput mean map [x -> relatedness self x] ([self] of plants in-radius 5 ) radius5
-;  set fathers.relatedness lput mean map [x -> relatedness self x] .fathers fathers.relatedness
-;  set .tmp []
-;  ask progeny [ask other progeny [set .tmp lput relatedness self myself .tmp]]
-;  set among-progeny-relatedness lput mean .tmp among-progeny-relatedness
-;  set patch_color lput pcolor patch_color
-;  set pollinators_mean_distance lput mean map [x -> distance x] .fathers pollinators_mean_distance
-;  set count_pollinators lput sum sort remove-duplicates .fathers count_pollinators
-;end
-;
-;to-report output.means .list
-;  report mean (reduce sentence .list)
-;end
 @#$#@#$#@
 GRAPHICS-WINDOW
-166
-12
-658
-505
+7
+249
+321
+564
 -1
 -1
-15.613
+14.6
 1
 10
 1
@@ -815,23 +466,23 @@ GRAPHICS-WINDOW
 1
 1
 1
--15
-15
--15
-15
+-10
+10
+-10
+10
 1
 1
 1
 ticks
-60.0
+10.0
 
 BUTTON
-0
-413
-56
-448
+54
+10
+117
+43
+NIL
 setup
-setup\n
 NIL
 1
 T
@@ -843,10 +494,10 @@ NIL
 1
 
 BUTTON
-56
-413
-112
-447
+204
+10
+267
+43
 NIL
 go
 T
@@ -859,11 +510,26 @@ NIL
 NIL
 1
 
+SLIDER
+0
+47
+172
+80
+Y
+Y
+2
+500
+500.0
+2
+1
+# seeds
+HORIZONTAL
+
 BUTTON
-112
-413
-168
-448
+280
+10
+355
+43
 go once
 go
 NIL
@@ -876,1417 +542,680 @@ NIL
 NIL
 1
 
-BUTTON
-55
-489
-111
-523
-pollinate
-pollinate
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-110
-488
-166
-523
-disperse seeds
-ask plants [disperse.seeds]
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
 PLOT
-1357
-134
-1671
-254
-plants mean dispersal distance
+458
+10
+746
+142
+ri establishment rates
 ticks
-dispersal distance
+est. rate
 0.0
-1.0
-0.0
-1.0
-true
-true
-"" ""
-PENS
-"0" 1.0 0 -7500403 true "" ""
-"-1" 1.0 0 -2674135 true "" ""
-"1" 1.0 0 -13345367 true "" ""
-
-PLOT
-870
-53
-1030
-173
-large-scale
-geographic distance
-genetic relatedness
-3.0
 10.0
+0.0
 0.5
-1.0
 true
-false
-"" ""
+true
+"" "set-plot-y-range 0 precision ( 1 /  gametes-number ) 3"
 PENS
-"x" 1.0 2 -8630108 true "" ""
-"mean" 1.0 0 -16777216 true "" ""
-
-BUTTON
-0
-523
-56
-557
-sgs
-calc.sgs plants
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-PLOT
-874
-292
-1034
-412
-plants heterozygosity
-heterozygosity
-# plants
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"default" 1.0 1 -8630108 true "" ""
-
-BUTTON
-112
-447
-168
-481
-NIL
-profile
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-SWITCH
-867
-12
-957
-45
-plant_plots
-plant_plots
-0
-1
--1000
-
-BUTTON
-110
-523
-166
-557
-NIL
-kill.parents
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-55
-523
-111
-557
-plot
-\n  if (plant_plots = true) [\nplots htz_dispersal plants]
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-0
-488
-56
-523
-establish
-if (changing.landscape) [change.landscape]\n  crt_tables\n  establish\n  calc.fixation
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-PLOT
-1034
-173
-1194
-293
-pollination
-Distance
-Quantity
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"default" 1.0 1 -16777216 true "" ""
-
-BUTTON
-110
-376
-166
-410
-update plots
-update-plots
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-PLOT
-712
-173
-872
-293
-plants quantities
-ticks
-# plants
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"0" 1.0 0 -7500403 true "" ""
-"1" 1.0 0 -2674135 true "" ""
-"2" 1.0 0 -955883 true "" ""
-"3" 1.0 0 -6459832 true "" ""
-"4" 1.0 0 -1184463 true "" ""
-
-BUTTON
-0
-447
-56
-481
-NIL
-clear-all
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-SWITCH
-97
-559
-192
-592
-local-adaptations?
-local-adaptations?
-1
-1
--1000
-
-PLOT
-1035
-293
-1195
-413
-Environmental variability
-NIL
-NIL
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"default" 1.0 1 -7171555 true "" ""
-"rd" 1.0 1 -8630108 true "" ""
-"ri" 1.0 1 -5825686 true "" ""
-
-PLOT
-1196
-12
-1356
-132
-plants realized kernel
-distance travelled
-# seeds
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"default" 1.0 1 -8630108 true "" ""
-"mean" 1.0 1 -16777216 true "" ""
-
-PLOT
-1197
-133
-1357
-253
-plants realized kernel heterozygosity = 0
-distance travelled
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"mean" 1.0 1 -2674135 true "" ""
-
-PLOT
-1197
-253
-1357
-373
-plants realized kernel heterozygosity = 1
-distance travelled
-# seeds
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"mean" 1.0 1 -955883 true "" ""
-
-PLOT
-1196
-373
-1356
-493
-plants realized kernel heterozygosity = 2
-distance travelled
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"mean" 1.0 1 -4079321 true "" ""
-
-PLOT
-1196
-493
-1356
-613
-plants realized kernel heterozygosity = 3
-distance travelled
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"mean" 1.0 1 -10899396 true "" ""
-
-PLOT
-1196
-613
-1356
-733
-plants realized kernel heterozygosity = 4
-distance travelled
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"mean" 1.0 1 -13345367 true "" ""
-
-TEXTBOX
-1259
-36
-1314
-57
-Total
-20
-0.0
-1
-
-TEXTBOX
-1253
-157
-1329
-179
-HtZ = 0
-20
-15.0
-1
-
-TEXTBOX
-1249
-519
-1326
-541
-HtZ = 3
-20
-55.0
-1
-
-TEXTBOX
-1249
-395
-1334
-417
-HtZ = 2
-20
-44.0
-1
-
-TEXTBOX
-1249
-635
-1332
-657
-HtZ = 4
-20
-105.0
-1
-
-TEXTBOX
-1249
-279
-1323
-301
-HtZ = 1
-20
-25.0
-1
-
-PLOT
-873
-412
-1033
-532
-heterozygosity dispersal plants
-Heterozygosity
-Dispersal distance
-0.0
-1.0
-0.0
-1.0
-true
-false
-"" ""
-PENS
-"x" 1.0 2 -8630108 true "" ""
-"mean" 1.0 0 -16777216 true "" ""
-
-PLOT
-712
-413
-872
-533
-Heterozygosity median SE
-Ticks
-Heterozygosity (quantiles)
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"median" 1.0 0 -16777216 true "" ""
-"0.25" 1.0 0 -2674135 true "" ""
-"0.75" 1.0 0 -2674135 true "" ""
-
-PLOT
-710
-535
-870
-655
-Dispersal quantiles
-Ticks
-Dispersal distance (quantiles)
-0.0
-10.0
-0.0
-1.0
-true
-false
-"" ""
-PENS
-"0.25" 1.0 0 -2674135 true "" ""
-"median" 1.0 0 -16777216 true "" ""
-"0.75" 1.0 0 -2674135 true "" ""
-
-PLOT
-1032
-53
-1195
-173
-sgs coefs dynamics
-Ticks
-SGS slope
-0.0
-10.0
--0.1
-0.1
-true
-true
-"" ""
-PENS
-"large" 1.0 0 -13345367 true "" ""
-"fine" 1.0 0 -2674135 true "" ""
+"inbreeding = 4" 1.0 0 -4079321 true "" "if (ticks > 2) [plot count plants with [inbreeding-load = 4 and rd? = false] / count seeds with [inbreeding-load = 4  and rd? = false] ]"
+"inbreeding = 3" 1.0 0 -955883 true "" "if (ticks > 2) [plot count plants with [ inbreeding-load = 3  and rd? = false] / count seeds with [inbreeding-load = 3  and rd? = false] ]"
+"inbreeding = 2" 1.0 0 -2674135 true "" "if (ticks > 2) [plot count plants with [ inbreeding-load = 2  and rd? = false] / count seeds with [inbreeding-load = 2  and rd? = false] ]"
+"inbreeding = 1" 1.0 0 -10899396 true "" "if (ticks > 2) [plot count plants with [ inbreeding-load = 1  and rd? = false] / count seeds with [inbreeding-load = 1  and rd? = false] ]"
+"inbreeding = 0" 1.0 0 -13345367 true "" "if (ticks > 2) [plot count plants with [ inbreeding-load = 0  and rd? = false] / count seeds with [inbreeding-load = 0  and rd? = false] ]"
+"total" 1.0 0 -16777216 true "" "if (ticks > 2) [plot count plants with [rd? = false] / count seeds with [rd? = false] ]"
 
 SLIDER
-0
-628
-96
-661
+188
+91
+360
+124
+seed-mass
+seed-mass
+1
+20
+5.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+189
+208
+361
+241
 neighborhood-size
 neighborhood-size
 1
 10
-2.0
-1
-1
-NIL
-HORIZONTAL
-
-PLOT
-712
-53
-872
-173
-fine-scale
-Geo relatedness
-Genetic distance
-0.0
 3.0
-0.5
-1.0
-true
-false
-"" ""
-PENS
-"x" 0.1 2 -8630108 true "" ""
-"mean" 1.0 0 -16777216 true "" ""
-
-PLOT
-870
-533
-1030
-653
-mother-offspring relatedness
-Genetic relatedness
-Dispersal distance
-0.0
-1.0
-0.0
-1.0
-true
-false
-"" ""
-PENS
-"x" 1.0 2 -8630108 true "" ""
-"mean" 1.0 0 -16777216 true "" ""
-
-PLOT
-1033
-534
-1193
-654
-fixation
-NIL
-NIL
-0.0
-100.0
-0.0
-1.1
-true
-false
-"" ""
-PENS
-"default" 1.0 1 -16777216 true "" ""
-"pen-1" 1.0 0 -2674135 true "" "plot-pen-down plotxy 0 1 plotxy 100 1 plot-pen-up"
-
-PLOT
-1034
-413
-1194
-533
-fixation 2
-NIL
-NIL
-0.0
-10.0
-0.0
-1.0
-true
-false
-"" ""
-PENS
-"default" 1.0 0 -16777216 true "" ""
-
-SLIDER
-289
-653
-385
-686
-autocorrelation
-autocorrelation
-0
 1
-1.0
-0.1
 1
 NIL
 HORIZONTAL
 
 SLIDER
+188
+49
+360
+82
+gametes-number
+gametes-number
 0
-559
-95
-592
-mutations
-mutations
-0
+100
+10.0
 1
-0.0
-0.01
 1
 NIL
 HORIZONTAL
-
-PLOT
-712
-292
-872
-412
-mutation
-NIL
-NIL
-0.0
-99.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"default" 1.0 1 -16777216 true "" ""
-
-SWITCH
-97
-629
-192
-662
-changing.landscape
-changing.landscape
-1
-1
--1000
-
-SWITCH
-96
-594
-192
-627
-Coupled
-Coupled
-1
-1
--1000
-
-CHOOSER
-289
-559
-385
-604
-fragmentation
-fragmentation
-"no" "black uninhabitable" "white uninhabitable"
-1
-
-PLOT
-873
-172
-1033
-292
-mother-offspring relatedness histogram
-NIL
-NIL
-0.5
-1.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"default" 0.05 1 -16777216 true "" ""
-
-OUTPUT
-1678
-63
-2558
-858
-12
-
-PLOT
-1356
-12
-1670
-132
-#plants by rd-strategy
-time
-# plants
--2.0
-2.0
-0.0
-10.0
-true
-true
-"" ""
-PENS
-"-1" 1.0 0 -2674135 true "" ""
-"0" 1.0 0 -7500403 true "" ""
-"1" 1.0 0 -13345367 true "" ""
-
-PLOT
-1355
-613
-1671
-733
-heterozygosity dispersal over time
-time
-Beta coefficient
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"default" 1.0 0 -16777216 true "" ""
 
 SLIDER
-775
-12
-868
-45
-sgs.scale
-sgs.scale
+188
+130
+360
+163
+dispersal-distance
+dispersal-distance
+0
+30
+5.0
 1
-9
-1.5
-0.5
 1
 NIL
 HORIZONTAL
 
-BUTTON
-708
-13
-773
-47
-reset y axis
-set-current-plot \"plants mean dispersal distance\"\nset-plot-y-range 0 1\n\nset-current-plot \"mother-offspring relatedness\"\nset-plot-y-range 0 1\n\nset-current-plot \"heterozygosity dispersal plants\"\nset-plot-y-range 0 1\n\nset-current-plot \"Dispersal quantiles\"\nset-plot-y-range 0 1\n\nset-current-plot \"plants mean dispersal distance coef = -1\"\nset-plot-y-range 0 1\n\nset-current-plot \"plants mean dispersal distance coef = 0\"\nset-plot-y-range 0 1\n\nset-current-plot \"plants mean dispersal distance coef = 1\"\nset-plot-y-range 0 1\n
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
+PLOT
+983
+10
+1213
+131
+ri Total
+distance travelled
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count (seeds with [rd? = false]) > 0) [set-plot-y-range 0 (count seeds with [rd? = false] )]"
+PENS
+"default" 1.0 1 -16777216 true "" "histogram [distance home-patch] of seeds with [rd? = false]"
 
-SLIDER
-388
-560
-498
-593
-switch_p
-switch_p
-0
-1
-1.0
-0.1
-1
-NIL
-HORIZONTAL
-
-CHOOSER
-388
-595
-498
-640
-strategy
-strategy
-"positive" "neutral" "negative"
-0
-
-BUTTON
+PLOT
+984
+380
+1205
 500
-560
-556
-594
-switch
-ask n-of (switch_p * count turtles) turtles \n[set rd_coef (ifelse-value \n(strategy = \"positive\") [1]\n(strategy = \"neutral\") [0]\n(strategy = \"negative\") [-1]\n)]
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
+ri Inbreeding = 2
+distance travelled
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 2 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 2 and rd? = false]]"
+PENS
+"inbreeding = 2" 1.0 1 -2674135 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 2 and rd? = false] "
+
+PLOT
+985
+501
+1206
+621
+ri Inbreeding = 1
+distance travelled
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 1 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 1 and rd? = false]]"
+PENS
+"default" 1.0 1 -13840069 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 1 and rd? = false ]"
+
+PLOT
+985
+623
+1207
+743
+ri Inbreeding = 0
+distance travelled
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 0 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 0 and rd? = false]]"
+PENS
+"default" 1.0 1 -13345367 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 0 and rd? = false]"
 
 SLIDER
-2
-594
-95
-627
-dist
-dist
+0
+131
+172
+164
+initial-gap
+initial-gap
 0
 10
-1.0
-0.5
-1
-NIL
-HORIZONTAL
-
-SLIDER
-193
-607
-288
-640
-dispersal-relatedness
-dispersal-relatedness
--1
-1
-1.0
+0.0
 1
 1
 NIL
 HORIZONTAL
-
-PLOT
-1357
-253
-1672
-373
-plants mean dispersal distance coef = 1
-time
-Dispersal distance
-0.0
-10.0
-0.0
-1.0
-true
-false
-"" ""
-PENS
-"0" 1.0 0 -16777216 true "" ""
-"1" 1.0 0 -7500403 true "" ""
-"2" 1.0 0 -2674135 true "" ""
-"3" 1.0 0 -955883 true "" ""
-"4" 1.0 0 -6459832 true "" ""
-
-PLOT
-1355
-373
-1672
-493
-plants mean dispersal distance coef = 0
-NIL
-NIL
-0.0
-10.0
-0.0
-1.0
-true
-false
-"" ""
-PENS
-"0" 1.0 0 -16777216 true "" ""
-"1" 1.0 0 -7500403 true "" ""
-"2" 1.0 0 -2674135 true "" ""
-"3" 1.0 0 -955883 true "" ""
-"4" 1.0 0 -6459832 true "" ""
-
-PLOT
-1355
-493
-1672
-613
-plants mean dispersal distance coef = -1
-NIL
-NIL
-0.0
-10.0
-0.0
-1.0
-true
-false
-"" ""
-PENS
-"0" 1.0 0 -16777216 true "" ""
-"1" 1.0 0 -7500403 true "" ""
-"2" 1.0 0 -2674135 true "" ""
-"3" 1.0 0 -955883 true "" ""
-"4" 1.0 0 -6459832 true "" ""
 
 CHOOSER
-194
-559
-287
-604
-strategies
-strategies
-"single" "multi"
-0
-
-INPUTBOX
-194
-642
-287
-702
-multi-strategies
--1 0 1
-1
-0
-String
-
-BUTTON
-95
-178
-169
-224
-select
-go2
-T
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-PLOT
-0
 16
-168
-172
-selected
-NIL
-NIL
+82
+154
+127
+Initial-mix
+Initial-mix
+"Yes" "No"
+0
+
+PLOT
+1209
+380
+1418
+500
+ri realized kernel inbreeding = 2
+distance travelled
+# plants
 0.0
-1.0
-0.5
-1.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count plants with [inbreeding-load = 2 and rd? = false] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 2 and rd? = false] ]"
+PENS
+"default" 1.0 1 -2674135 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 2 and rd? = false] "
+
+PLOT
+1210
+501
+1417
+621
+ir realized kernel inbreeding = 1
+distance travelled
+# plants
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count plants with [inbreeding-load = 1 and rd? = false] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 1 and rd? = false] ]"
+PENS
+"default" 1.0 1 -14439633 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 1 and rd? = false ]"
+
+PLOT
+1211
+622
+1418
+742
+ri realized kernel inbreeding = 0
+distance travelled
+# plants
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count plants with [inbreeding-load = 0 and rd? = false] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 0 and rd? = false] ]"
+PENS
+"default" 1.0 1 -14070903 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 0  and rd? = false]"
+
+PLOT
+1214
+10
+1417
+130
+ri realized kernel
+distance travelled
+# plants
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if ((count plants with [rd? = false]) > 2) [set-plot-y-range 0 count plants with [rd? = false]]"
+PENS
+"default" 1.0 1 -16777216 true "" "histogram [distance home-patch] of plants with [rd? = false]"
+
+BUTTON
+475
+525
+555
+559
+untrace
+clear-drawing\nask turtles [pen-erase]
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+BUTTON
+357
+525
+470
+559
+trace dispersal
+ask up-to-n-of 100 seeds with [inbreeding-load = 0] [pd]\nask up-to-n-of 100 seeds with [inbreeding-load = 1] [pd]\nask up-to-n-of 100 seeds with [inbreeding-load = 2] [pd]\nask up-to-n-of 100 seeds with [inbreeding-load = 3] [pd]\nask up-to-n-of 100 seeds with [inbreeding-load = 4] [pd]
+T
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+0
+
+PLOT
+984
+259
+1205
+379
+ri inbreeding = 3
+distance travelled
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 3 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 3 and rd? = false]]"
+PENS
+"default" 1.0 1 -955883 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 3 and rd? = false]"
+
+PLOT
+1208
+259
+1416
+379
+ri realized kernel inbreeding = 3
+distance travelled
+# plants
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count plants with [inbreeding-load = 3 and rd? = false]  > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 3 and rd? = false] ]"
+PENS
+"default" 1.0 1 -955883 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 3 and rd? = false ]"
+
+BUTTON
+354
+292
+434
+326
+NIL
+establish
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+BUTTON
+353
+329
+541
+363
+produce gametes and pollen
+produce-gametes\nproduce-pollen
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+BUTTON
+354
+369
+468
+403
+NIL
+produce-seeds
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+BUTTON
+354
+408
+469
+442
+NIL
+disperse-seeds
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+BUTTON
+355
+447
+448
+481
+NIL
+kill-parents
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+PLOT
+560
+148
+744
+298
+ri plant quantities
+ticks
+# plants
+0.0
+10.0
+0.0
+10.0
 true
 false
 "" ""
 PENS
-"x" 1.0 2 -8630108 true "" ""
-"mean" 1.0 0 -16777216 true "" ""
+"default" 1.0 0 -4079321 true "" "plot count plants with [inbreeding-load = 4  and rd? = false]"
+"pen-1" 1.0 0 -955883 true "" "plot count plants with [inbreeding-load = 3  and rd? = false]"
+"pen-2" 1.0 0 -2674135 true "" "plot count plants with [inbreeding-load = 2  and rd? = false]"
+"pen-3" 1.0 0 -10899396 true "" "plot count plants with [inbreeding-load = 1  and rd? = false]"
+"pen-4" 1.0 0 -13345367 true "" "plot count plants with [inbreeding-load = 0  and rd? = false]"
 
-BUTTON
-56
-446
-112
-480
-plot
-make-plot selected\nplots htz_dispersal plants
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-56
-230
-112
-264
-clear plot
-set-current-plot \"selected\" clear-plot\n\ndeselect\n
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-CHOOSER
+SLIDER
 0
-178
-93
-223
-what-to-plot
-what-to-plot
-"sgs" "mother-offspring" "adaptation" "heterozygosity" "dispersal distances" "relatedness"
-2
-
-BUTTON
+209
+173
+242
+random-extinction
+random-extinction
 0
-230
-56
-264
-plot
-make-plot selected
-NIL
 1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
+0.5
+0.05
 1
+NIL
+HORIZONTAL
 
-BUTTON
-2144
-12
-2205
-47
-data
-output-print stats:print-data plants_data
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
+PLOT
+984
+136
+1204
+256
+ri inbreeding = 4
+distance travelled
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 4 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 4 and rd? = false]]"
+PENS
+"default" 1.0 1 -4079321 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 4 and rd? = false]"
 
-BUTTON
-1016
-12
-1072
-46
--1
-ifelse (any? turtles with [rd_coef = -1])\n[\nlet bla2 stats:newtable-from-row-list filter [x -> last x = -1] stats:get-data-as-list htz_dispersal \nstats:set-names bla2 stats:get-names htz_dispersal \n\ncalc.sgs plants with [rd_coef = -1]\nplots bla2 plants with [rd_coef = -1]\nmake-plot selected with [rd_coef = -1]\n\n\nask turtles [\nifelse (rd_coef = -1) [set hidden? false] [set hidden? true]]\n]\n[user-message \"No turtles available\"]
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
+PLOT
+1209
+136
+1415
+256
+ri realized kernel inbreeding = 4
+distance travelled
+# plants
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count plants with [inbreeding-load = 4 and rd? = false] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 4 and rd? = false] ]"
+PENS
+"default" 1.0 1 -4079321 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 4  and rd? = false]"
 
-BUTTON
-1075
-12
-1131
-46
-0
-ifelse (any? turtles with [rd_coef = 0])\n[\n\nlet bla2 stats:newtable-from-row-list filter [x -> last x = 0] stats:get-data-as-list htz_dispersal \nstats:set-names bla2 stats:get-names htz_dispersal \n\n\ncalc.sgs plants with [rd_coef = 0]\nplots bla2 plants with [rd_coef = 0]\nmake-plot selected with [rd_coef = 0]\n\nask turtles [\nifelse (rd_coef = 0) [set hidden? false] [set hidden? true]]\n]\n[user-message \"No turtles available\"]
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
+PLOT
+753
+300
+924
+452
+rd mean dispersal distance
+ticks
+distance travelled
+0.0
+4.0
+0.0
+1.0
+true
+false
+"" "if (ticks > 2) [set-plot-y-range precision (mean [distance-travelled] of seeds * 0.8) 2 precision (mean [distance-travelled] of seeds * 1.2) 2]"
+PENS
+"inbreeding = 4" 1.0 0 -7171555 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 4 and rd? = true]"
+"pen-1" 1.0 0 -955883 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 3 and rd? = true]"
+"pen-2" 1.0 0 -2674135 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 2 and rd? = true]"
+"pen-3" 1.0 0 -10899396 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 1 and rd? = true]"
+"pen-4" 1.0 0 -13345367 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 0 and rd? = true]"
 
-BUTTON
-1133
-12
-1189
-46
+MONITOR
+1431
+18
+1517
+63
+ri plants total
+count plants with [rd? = false]
+17
 1
-ifelse (any? turtles with [rd_coef = -1])\n[\n\nlet bla2 stats:newtable-from-row-list filter [x -> last x = 1] stats:get-data-as-list htz_dispersal \nstats:set-names bla2 stats:get-names htz_dispersal \n\n\ncalc.sgs plants with [rd_coef = 1]\nplots bla2 plants with [rd_coef = 1]\nmake-plot  selected with [rd_coef = 1]\n\n\nask turtles [\nifelse (rd_coef = 1) [set hidden? false] [set hidden? true]]\n]\n[user-message \"No turtles available\"]
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
+11
 
-SWITCH
-0
-663
-96
-696
-dispersal2
-dispersal2
-1
-1
--1000
-
-BUTTON
-56
-265
-112
-299
-progeny
-if (mouse-down?) [\nlet .plants.here []\n  let any.color random-float 140\n  ask patch mouse-xcor mouse-ycor \n  [set .plants.here plants-here\n  ask .plants.here [\n  set color any.color\n  set size 1.2\n\n  create-links-with progeny [\n  set hidden? false\n    set color [color] of end1\n    set thickness relatedness end1 end2 * 0.25]\n    ]]\n    ask .plants.here [\n    ask progeny[\n    set color [color] of myself\n    set size 0.3\n    set hidden? false\n]]\n  set selected (turtle-set selected .plants.here [progeny] of .plants.here)]\ndisplay
-T
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-112
-230
-168
-264
-clear
-clear-links\n  deselect\n       ask seeds [\n       set size 0.25]\n       ask plants [\n       set size 0.5]\n       \n       set selected no-turtles\n       
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-112
-265
-168
-299
-Pollinators
-if (mouse-down?) [\nlet .plants.here []\n  let any.color random-float 140\n  ask patch mouse-xcor mouse-ycor \n  [set .plants.here plants-here\n  ask .plants.here [\n  set color any.color\n  set size 1.2\n\n  create-links-with turtle-set pollinators [\n  set hidden? false\n    set color [color] of end1]\n    ]]\n    ask .plants.here [\n    ask turtle-set pollinators[\n    set color [color] of myself\n    set size 1.3\n    set hidden? false\n]]\n  set selected (turtle-set selected .plants.here [pollinators] of .plants.here)]\ndisplay
-T
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-55
-344
-111
-378
-rd color
-ask turtles [(ifelse (rd_coef = 1) [set color blue]\n(rd_coef = 0) [ set color grey]\n(rd_coef = -1) [ set color red])]
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-55
-376
-111
-410
-htz color
-ask turtles [\n     set color (ifelse-value ;; color codes for figures\n      (bins = 0) [red]\n      (bins = 1) [orange]\n      (bins = 2) [43]\n      (bins = 3) [green]\n       [blue]) ]
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-0
-344
-56
-378
-disperal
-ask patches [set original.value pcolor]\nlet .global []\nask patches with [any? turtles-here][\nset .global lput mean [distance.travelled] of \nturtles-here .global]\nset .global reduce sentence reduce sentence .global\nask patches [ifelse (any? turtles-here) \n[set pcolor scale-color blue mean [distance.travelled] of \nturtles-here max .global min .global ]\n[set pcolor white]]\n
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-0
-265
-56
-299
-relatedness
-if (mouse-down?) [\nlet .here []\n  let any.color random-float 140\n  ask patch mouse-xcor mouse-ycor \n  [ask one-of turtles-here\n  [set size size * 1\n  set .here other turtles in-radius 2\n  let .levels map [x -> relatedness x self * 100] sort .here\n  ask .here [\n  set size size * 1\n\n  set color scale-color red (relatedness self myself * 100) min .levels max .levels\n]\n  set selected (turtle-set selected .here self)]]]\ndisplay
-T
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-114
-298
-170
-332
-show all
-set hidden? false
-NIL
-1
-T
-TURTLE
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-57
-298
+MONITOR
+1432
+68
+1517
 113
-332
-hide seeds
-ask seeds [ set hidden? true]
-NIL
+ri seeds total
+count seeds with [rd? = false]
+17
 1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
+11
 
-BUTTON
-0
-298
-56
-332
-hide plants
-ask plants [set hidden? true]
-NIL
+MONITOR
+1423
+142
+1564
+187
+ri plants inbreeding = 4
+count plants with [inbreeding-load = 4 and rd? = false]
+17
 1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
+11
 
-BUTTON
-2
-376
-58
-410
-relatedness
-ask patches [set original.value pcolor\nset relatedness.patch \"null\"]\nask patches with [any? turtles-here and any? turtles-on neighbors][\nset relatedness.patch mean reduce sentence reduce sentence map \n[x -> map [y -> relatedness y x * 100] sort turtles-here] \nsort (turtle-set turtles-here turtles-on neighbors)] \nask patches [ ifelse (any? turtles-here)\n[set pcolor scale-color blue relatedness.patch\nmax [relatedness.patch] of patches min [relatedness.patch] of patches ]\n[set pcolor white]]\n\n
-NIL
+MONITOR
+1425
+193
+1565
+238
+ri seeds inbreeding = 4
+count seeds with [inbreeding-load = 4 and rd? = false]
+17
 1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
+11
 
-BUTTON
-557
+MONITOR
+1428
+272
+1569
+317
+ri plants inbreeding = 3
+count plants with [inbreeding-load = 3 and rd? = false]
+17
+1
+11
+
+MONITOR
+1429
+319
+1569
+364
+ri seeds inbreeding = 3
+count seeds with [inbreeding-load = 3 and rd? = false]
+17
+1
+11
+
+MONITOR
+1429
+391
+1570
+436
+ri plants inbreeding = 2
+count plants with [inbreeding-load = 2 and rd? = false]
+17
+1
+11
+
+MONITOR
+1430
+439
+1570
+484
+ri seeds inbreeding = 2
+count seeds with [inbreeding-load = 2 and rd? = false]
+17
+1
+11
+
+MONITOR
+1431
+515
+1572
 560
-613
-594
-diffuse
-diffuse pcolor autocorrelation
-NIL
+ri plants inbreeding = 1
+count plants with [inbreeding-load = 1 and rd? = false]
+17
 1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
+11
 
-BUTTON
-500
-596
-556
-630
-fragment
-let .pro read-from-string user-input (word \"Proportion of cells to turn \" .color \"?\")\nask patches [if (random-float 1.0 < .pro) [\nset pcolor read-from-string .color]]
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-557
-596
-613
-630
-patches
-let populations read-from-string user-input \"How many patches to make?\"\nlet initial.pop.size read-from-string user-input \"What size?\"\n\n\n  repeat populations [               ; number of blobs I want to  have\n    let blob-maker nobody\n    crt 1 [ set blob-maker self     \n       setxy random-xcor random-ycor]  ; set random position of \"blob-makers\"\n    repeat initial.pop.size [               ; size of one blob (number of patches of the same color close one to another)\n    ask blob-maker [\n       ask min-one-of patches with-max [ pcolor ] [ distance myself ] [ set pcolor black]\n  rt random 360\n  fd 1\n]\n]\nask blob-maker [ die ]\n]\n
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-614
-560
-709
-594
-manual coloration
-if (mouse-down?) [\n  ask patch mouse-xcor mouse-ycor \n  [set pcolor read-from-string .color ]]\ndisplay
-T
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-CHOOSER
-289
+MONITOR
+1431
+562
+1571
 607
-385
-652
-.color
-.color
-"black" "white"
+ri seeds inbreeding = 1
+count seeds with [inbreeding-load = 1 and rd? = false]
+17
+1
+11
+
+MONITOR
+1429
+631
+1570
+676
+ri plants inbreeding = 0
+count plants with [inbreeding-load = 0 and rd? = false]
+17
+1
+11
+
+MONITOR
+1430
+680
+1570
+725
+ri seeds inbreeding = 0
+count seeds with [inbreeding-load = 0 and rd? = false]
+17
+1
+11
+
+PLOT
+752
+454
+923
+599
+rd spatial genetic structure
+geographic distance
+genetic distance
+0.0
+10.0
+0.0
+1.0
+true
+false
+"" "clear-plot"
+PENS
+"default" 1.0 2 -16777216 true "" ""
+
+SLIDER
+189
+168
+361
+201
+number-of-donors
+number-of-donors
 0
+20
+6.0
+1
+1
+NIL
+HORIZONTAL
 
 BUTTON
-959
-12
-1015
-46
-all
-let bla2 stats:newtable-from-row-list filter [x -> last x = -1] stats:get-data-as-list htz_dispersal \nstats:set-names bla2 stats:get-names htz_dispersal \n\ncalc.sgs plants\nplots htz_dispersal plants \nmake-plot selected \n\nask plants [set hidden? false]
+355
+486
+418
+519
+NIL
+sgs
 NIL
 1
 T
@@ -2297,43 +1226,826 @@ NIL
 NIL
 1
 
-BUTTON
-110
-344
-166
-378
-reset
-ask patches [set pcolor original.value]\ndisplay
-NIL
+SLIDER
+0
+169
+172
+202
+initial-pops
+initial-pops
+2
+10
+2.0
 1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
 1
+NIL
+HORIZONTAL
+
+PLOT
+2197
+139
+2357
+259
+ri Mass inbreeding = 4
+Mass
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 4 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 4 and rd? = false] ]"
+PENS
+"default" 1.0 1 -7171555 true "" "histogram [mass] of seeds with [ inbreeding-load = 4  and rd? = false]"
+
+PLOT
+2195
+637
+2355
+757
+ri Mass inbreeding = 0
+Mass
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 0 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 0 and rd? = false] ]"
+PENS
+"default" 1.0 1 -13345367 true "" "histogram [mass] of seeds with [ inbreeding-load = 0  and rd? = false]"
+
+PLOT
+2563
+296
+2723
+416
+ri plants inbreeding
+Homozigosity
+# plants
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"default" 1.0 1 -16777216 true "" "histogram [homozygosity] of plants with [rd? = false]"
+
+PLOT
+2563
+425
+2723
+545
+ri seeds inbreeding
+Homozigosity
+# seeds
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"default" 1.0 1 -16777216 true "" "histogram [homozygosity] of seeds with [rd? = false]"
+
+PLOT
+558
+454
+749
+599
+ri spatial genetic structure
+geographic distance
+genetic distance
+0.0
+10.0
+0.0
+1.0
+true
+false
+"" "clear-plot"
+PENS
+"default" 1.0 2 -16777216 true "" ""
+
+PLOT
+560
+300
+747
+452
+ri mean dispersal distance
+ticks
+distance travelled
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" "if (ticks > 2) [set-plot-y-range precision (mean [distance-travelled] of seeds * 0.8) 2 precision (mean [distance-travelled] of seeds * 1.2) 2]"
+PENS
+"default" 1.0 0 -4079321 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 4 and rd? = false]"
+"pen-1" 1.0 0 -955883 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 3 and rd? = false]"
+"pen-2" 1.0 0 -2674135 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 2 and rd? = false]"
+"pen-3" 1.0 0 -10899396 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 1 and rd? = false]"
+"pen-4" 1.0 0 -13345367 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 0 and rd? = false]"
+
+PLOT
+1600
+11
+1800
+131
+rd Total
+distance travelled
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count (seeds with [rd? = true]) > 0) [set-plot-y-range 0 (count seeds with [rd? = true] )]"
+PENS
+"default" 1.0 1 -16777216 true "" "histogram [distance home-patch] of seeds with [rd? = true]"
+
+PLOT
+1805
+10
+2003
+130
+rd realized kernel
+distance travelled
+# plants
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if ((count plants with [rd? = true]) > 2) [set-plot-y-range 0 count plants with [rd? = true]]"
+PENS
+"default" 1.0 1 -16777216 true "" "histogram [distance home-patch] of plants with [rd? = true]"
+
+PLOT
+1601
+138
+1801
+258
+rd inbreeding = 4
+distance travelled
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 4 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 4 and rd? = true]]"
+PENS
+"default" 1.0 1 -7171555 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 4 and rd? = true]"
+
+PLOT
+1806
+138
+2006
+258
+rd realized kernel inbreeding = 4
+distance travelled
+# plants
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count plants with [inbreeding-load = 4 and rd? = true] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 4 and rd? = true] ]"
+PENS
+"default" 1.0 1 -7171555 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 4  and rd? = true]"
+
+PLOT
+1602
+260
+1802
+380
+rd inbreeding = 3
+distance travelled
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 3 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 3 and rd? = true]]"
+PENS
+"default" 1.0 1 -955883 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 3 and rd? = true]"
+
+PLOT
+1605
+382
+1805
+502
+rd inbreeding = 2
+distance travelled
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 2 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 2 and rd? = true]]"
+PENS
+"default" 1.0 1 -2674135 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 2 and rd? = true] "
+
+PLOT
+1605
+505
+1805
+625
+rd inbreeding = 1
+distance travelled
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 1 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 1 and rd? = true]]"
+PENS
+"default" 1.0 1 -10899396 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 1 and rd? = true ]"
+
+PLOT
+1605
+627
+1805
+747
+rd inbreeding = 0
+distance travelled
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 0 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 0 and rd? = false]]"
+PENS
+"default" 1.0 1 -13345367 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 0 and rd? = false]"
+
+PLOT
+1808
+260
+2008
+380
+rd realized kernel inbreeding = 3
+distance travelled
+# plants
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count plants with [inbreeding-load = 3 and rd? = true]  > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 3 and rd? = true] ]"
+PENS
+"default" 1.0 1 -955883 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 3 and rd? = true ]"
+
+PLOT
+1809
+382
+2009
+502
+rd realized kernel inbreeding = 2
+distance travelled
+# plants
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count plants with [inbreeding-load = 2 and rd? = true] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 2 and rd? = true] ]"
+PENS
+"default" 1.0 1 -2674135 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 2 and rd? = true] "
+
+PLOT
+1810
+504
+2010
+624
+rd realized kernel inbreeding = 1
+distance travelled
+# plants
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count plants with [inbreeding-load = 1 and rd? = true] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 1 and rd? = true] ]"
+PENS
+"default" 1.0 1 -10899396 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 1 and rd? = true ]"
+
+PLOT
+1811
+625
+2011
+745
+rd realized kernel inbreeding = 0
+distance travelled
+# plants
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count plants with [inbreeding-load = 0 and rd? = true] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 0 and rd? = true] ]"
+PENS
+"default" 1.0 1 -13345367 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 0  and rd? = true]"
+
+PLOT
+750
+146
+924
+297
+rd plant quantities
+ticks
+# plants
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"default" 1.0 0 -7171555 true "" "plot count plants with [inbreeding-load = 4  and rd? = true]"
+"pen-1" 1.0 0 -955883 true "" "plot count plants with [inbreeding-load = 3  and rd? = true]"
+"pen-2" 1.0 0 -2674135 true "" "plot count plants with [inbreeding-load = 2  and rd? = true]"
+"pen-3" 1.0 0 -10899396 true "" "plot count plants with [inbreeding-load = 1  and rd? = true]"
+"pen-4" 1.0 0 -13345367 true "" "plot count plants with [inbreeding-load = 0  and rd? = true]"
+
+PLOT
+750
+10
+923
+141
+rd establishment rates
+ticks
+est. rate
+0.0
+10.0
+0.0
+1.0
+true
+false
+"" "set-plot-y-range 0 precision ( 1 /  gametes-number ) 3"
+PENS
+"default" 1.0 0 -7171555 true "" "if (ticks > 2) [plot count plants with [inbreeding-load = 4 and rd? = true] / count seeds with [inbreeding-load = 4  and rd? = true] ]"
+"pen-1" 1.0 0 -955883 true "" "if (ticks > 2) [plot count plants with [inbreeding-load = 3 and rd? = true] / count seeds with [inbreeding-load = 3  and rd? = true] ]"
+"pen-2" 1.0 0 -2674135 true "" "if (ticks > 2) [plot count plants with [inbreeding-load = 2 and rd? = true] / count seeds with [inbreeding-load = 2  and rd? = true] ]"
+"pen-3" 1.0 0 -10899396 true "" "if (ticks > 2) [plot count plants with [inbreeding-load = 1 and rd? = true] / count seeds with [inbreeding-load = 1  and rd? = true] ]"
+"pen-4" 1.0 0 -13345367 true "" "if (ticks > 2) [plot count plants with [inbreeding-load = 0 and rd? = true] / count seeds with [inbreeding-load = 0  and rd? = true] ]"
+"pen-5" 1.0 0 -16777216 true "" "if (ticks > 2) [plot count plants with [rd? = true] / count seeds with [rd? = true] ]"
+
+MONITOR
+2012
+23
+2102
+68
+rd plants total
+count plants with [rd? = true]
+17
+1
+11
+
+MONITOR
+2014
+71
+2103
+116
+rd seeds total
+count seeds with [rd? = true]
+17
+1
+11
+
+MONITOR
+2013
+144
+2159
+189
+rd plants inbreeding = 4
+count plants with [inbreeding-load = 4 and rd? = true]
+17
+1
+11
+
+MONITOR
+2016
+198
+2160
+243
+rd seeds inbreeding = 4
+count seeds with [inbreeding-load = 4 and rd? = true]
+17
+1
+11
+
+MONITOR
+2015
+317
+2159
+362
+rd seeds inbreeding = 3
+count seeds with [inbreeding-load = 3 and rd? = true]
+17
+1
+11
+
+MONITOR
+2016
+444
+2160
+489
+rd seeds inbreeding = 2
+count seeds with [inbreeding-load = 2 and rd? = true]
+17
+1
+11
+
+MONITOR
+2016
+568
+2160
+613
+rd seeds inbreeding = 1
+count seeds with [inbreeding-load = 1 and rd? = true]
+17
+1
+11
+
+MONITOR
+2020
+687
+2164
+732
+rd seeds inbreeding = 0
+count seeds with [inbreeding-load = 0 and rd? = true]
+17
+1
+11
+
+MONITOR
+2014
+268
+2160
+313
+rd plants inbreeding = 3
+count plants with [inbreeding-load = 3 and rd? = true]
+17
+1
+11
+
+MONITOR
+2015
+395
+2161
+440
+rd plants inbreeding = 2
+count plants with [inbreeding-load = 2 and rd? = true]
+17
+1
+11
+
+MONITOR
+2016
+520
+2162
+565
+rd plants inbreeding = 1
+count plants with [inbreeding-load = 1 and rd? = true]
+17
+1
+11
+
+MONITOR
+2020
+640
+2166
+685
+rd plants inbreeding = 0
+count plants with [inbreeding-load = 0 and rd? = true]
+17
+1
+11
+
+PLOT
+2363
+139
+2523
+259
+rd Mass inbreeding = 4
+Mass
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 4 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 4 and rd? = true] ]"
+PENS
+"default" 1.0 1 -7171555 true "" "histogram [mass] of seeds with [ inbreeding-load = 4  and rd? = true]"
+
+PLOT
+2362
+638
+2524
+758
+rd Mass inbreeding = 0
+Mass
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 0 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 0 and rd? = true] ]"
+PENS
+"default" 1.0 1 -13345367 true "" "histogram [mass] of seeds with [ inbreeding-load = 0  and rd? = true]"
+
+PLOT
+2731
+296
+2891
+416
+rd plants inbreeding
+Homozigosity
+# plants
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"default" 1.0 1 -16777216 true "" "histogram [homozygosity] of plants with [rd? = true]"
+
+PLOT
+2733
+424
+2893
+544
+rd seeds inbreeding
+Homozigosity
+# seeds
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"default" 1.0 1 -16777216 true "" "histogram [homozygosity] of seeds with [rd? = true]"
+
+PLOT
+2564
+10
+2842
+160
+Mass ri vs. rd
+ticks
+Mass
+0.0
+10.0
+0.0
+10.0
+true
+true
+"" ""
+PENS
+"independent" 1.0 0 -16777216 true "" "plot mean ([mass] of seeds with [rd? = false])"
+"dependent" 1.0 0 -7500403 true "" "plot mean ([mass] of seeds with [rd? = true])"
+
+PLOT
+2197
+10
+2357
+130
+ri Mass total
+Mass
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [ rd? = false] > 0) [set-plot-y-range 0 count seeds with [ rd? = false] ]"
+PENS
+"default" 1.0 1 -16777216 true "" "histogram [mass] of seeds with [ rd? = false]"
+
+PLOT
+2362
+10
+2522
+130
+rd Mass total
+Mass
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [ rd? = true] > 0) [set-plot-y-range 0 count seeds with [rd? = true] ]"
+PENS
+"default" 1.0 1 -16777216 true "" "histogram [mass] of seeds with [ rd? = true]"
+
+PLOT
+2196
+263
+2356
+383
+ri mass inbreeding = 3
+Mass
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 3 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 3 and rd? = false] ]"
+PENS
+"default" 1.0 1 -955883 true "" "histogram [mass] of seeds with [ inbreeding-load = 3  and rd? = false]"
+
+PLOT
+2195
+389
+2355
+509
+ri mass inbreeding = 2
+Mass
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 2 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 2 and rd? = false] ]"
+PENS
+"default" 1.0 1 -2674135 true "" "histogram [mass] of seeds with [ inbreeding-load = 2  and rd? = false]"
+
+PLOT
+2194
+515
+2354
+635
+ri mass inbreeding = 1
+Mass
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 1 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 1 and rd? = false] ]"
+PENS
+"default" 1.0 1 -10899396 true "" "histogram [mass] of seeds with [ inbreeding-load = 1  and rd? = false]"
+
+PLOT
+2363
+263
+2523
+383
+rd Mass inbreeding = 3
+Mass
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 3 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 3 and rd? = true] ]"
+PENS
+"default" 1.0 1 -955883 true "" "histogram [mass] of seeds with [ inbreeding-load = 3  and rd? = true]"
+
+PLOT
+2363
+387
+2523
+507
+rd Mass inbreeding = 2
+Mass
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 2 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 2 and rd? = true] ]"
+PENS
+"default" 1.0 1 -2674135 true "" "histogram [mass] of seeds with [ inbreeding-load = 2 and rd? = true]"
+
+PLOT
+2363
+513
+2523
+633
+rd Mass inbreeding = 1
+Mass
+# seeds
+0.0
+20.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 1 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 1 and rd? = true] ]"
+PENS
+"default" 1.0 1 -10899396 true "" "histogram [mass] of seeds with [ inbreeding-load = 1  and rd? = true]"
+
+PLOT
+2564
+163
+2843
+283
+establishment rates ri vs. rd
+ticks
+est. rate
+0.0
+10.0
+0.0
+0.5
+true
+true
+"" "set-plot-y-range 0 precision ( 1 /  gametes-number ) 3"
+PENS
+"independent" 1.0 0 -16777216 true "" "if (ticks > 2) [plot count plants with [rd? = false] / count seeds with [rd? = false] ]"
+"dependent" 1.0 0 -7500403 true "" "if (ticks > 2) [plot count plants with [rd? = true] / count seeds with [rd? = true] ]"
+
+PLOT
+0
+593
+200
+743
+mass of established
+NIL
+NIL
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"default" 1.0 1 -16777216 true "" ""
+
+SLIDER
+377
+167
+549
+200
+Z
+Z
+1
+10
+5.0
+0.5
+1
+NIL
+HORIZONTAL
 
 @#$#@#$#@
 # My Model Description
 
 
 ## 1. Purpose and patterns
-_The aim_ of of the model is to study the long-term effects and dynamics of the effects of relatedness on dispersal-strategies, and the potential feedback loop with the population’s spatial genetic structure. Specifically, the aim of this version of the model is to see if, and under which conditions, a relatedness-dependent dispersal strategy is more advantageous than a relatedness-INdependent dispersal strategy.
+_The aim_ of the model is to study the long-term effects and dynamics of the effects of relatedness on dispersal-strategies, and the potential feedback loop with the population's spatial genetic structure.
 
-**Background:** The model is ment to elaborate on results of a common-garden experiment, in which we have conducted manual cross-pollinations using pollen-donors of increasing geographic distances (self, kin, near neighbors, distant neighbors, etc.), working under the assumption that geographic distance is a proxy of genetic distance (isolation by distance). In this work we found that as the geographic (and probably genetic) distance between the parent-plants increases, there is an increase in the mass of the produced seeds, and thus a decrease in their dispersal potential (because these are wind-dispersed seeds, so the heavier they are the closer-by they fall). Theoretically, this may be caused by an inbreeding load that causes seed mass reduction.
-
-**Theoretical background:** Theoretically, a relatedness-dependent dispersal strategy could be advantagous. I am basing this hypothesis on a few assumptions:
-1. In plants, often both seed- and pollen-dispersal are distance-dependent.
-2. Dispersal is maternally-controlled, as the dispersal-related structures of the seed are constructed froma a maternal tissue sorrounding the embryo.
-3. multi-paternity is ubiquitous in plants - often there are multiple pollen-donors within the same progeny/capitulum. Thus, we may expect heterogeneous levels of genetic-relatedness to exist between the mother-plant and the seeds, as well as among the seeds.
-
-In general, theory predicts dispersal to evolve as a balance between the costs and benefits of dispersal, which are predicted to vary depending on which selection pressures are acting in the system. I suggest that these costs and benefits may be relatedness-dependent, and thus, theoretically, it may be advantageous to have a flexible, relatedness-dependent, dispersal strategy. For example: if kin competition is a strong selection pressure, it may be more advantageous to have the seeds that are more genetically-similar disperse further away, to reduce levels of competition among them and to maximize inclusive-fitness. On the other hand, if local adaptations are a strong selection pressure, we may expect an opposite pattern, as it will be more advantageous to have the seeds that are more genetically-similar to the mother-plant stay closer by, as they are probably more well-adapted to the environmental conditions in the maternal habitat.
+**Background:** The model is ment to elaborate on results of a common-garden experiment, in which we have conducted manual cross-pollinations using pollen donors of increasing geographic distances (self, kin, near neighbors, distant neighbors, etc.), working under the assumption that geographic distance is a proxy of genetic distance (isolation by distance). In this work we found that with distance there is an increase in the mass of the produced seeds, and thus a decrease in their dispersal potential. Theoretically, this may be caused by an inbreeding load that causes seed mass reduction.
 
 
 #### Research questions: 
-  * Is a relatedness-dependent dispersal strategy superior to a relatedness-independent one?
   * Does a relatedness-dependent dispersal strategy contribute to the maintenence of low inbreeding levels?
+  * Is there an advantage in a dispersal strategy that is relatedness-dependent?
   * What is the spatial-genetic struture of a population that has a relatedness-dependent dispersal strategy?
 
 #### Predictions:
@@ -2356,11 +2068,11 @@ Plants are annual, wind-dispersed and wind-pollinated, outcrossed-only.
 
 #### State variables:
 •	Patches – location
-•	Seeds - home patch (the patch of the mother plant), current patch (the patch to which the seed was dispersed), mass, diploid genome (9 diallelic genes)
+•	_Seeds_ have the following variables: home patch (the patch of the mother plant), current patch (the patch to which the seed was dispersed), mass, diploid genome (9 diallelic genes)
 •	Plants – have the same variables as seeds
-•	Pollen grains - parent plant, haploid genome and an indicator for whether or not it was already used for pollination
+•	Pollen grains - parent plant, haploid ggenome and an indicator for whether or not it was already used for pollination
 •	Female gametes - parent plant and a haploid genome.
-In addition, all entities have an indicator stating whethe their dispersal-strategy is relatedness-dependent (rd) or relatedness-independent (ri). 
+
 
 #### Scales 
 One time-step equals to one life-time unit. I am not sure about the extent at this point. 
@@ -2373,23 +2085,17 @@ One grid cell represents a habitat suitable for 1 individual. Again, unsure abou
 
 In each time step: 
 
-  1. Establishment: In each cell one seed establishes. Establishment probability is proportional to the masses of the seeds. After establishment all seeds die, and a certain percentage of established plants are randomly chosen and die as well (this proportion can be manipulated using a slider).
+  1. Establishment: In each cell, if it has at least one seed in it, the seed with the highest mass turns to a plant in probability q, or one seed is randomly chosen in a probability of 1-q. If more than one seed has the highest mass, one of them is randomly chosen. After establishment all seeds die, and a certain percentage of established plants are randomly chosen and die as well (this proportion can be manipulated using a slider).
 
   2. Production of reproduction units: Plants produce female gametes and pollen grains. The number of gametes and grains produced by each individual is drawn from a Poisson-distribution with mean that can be manipulated using a slider. Each gamete and grain inherit half of their parent’s genotype, so they are haploid. 
 
-  3. Pollination: Pollination can only occur between plants that have the same dispersal-strategy. Each plant collects pollen from other plants in a distance-dependent manner. The number of potential donors and the neighborhood-size (max distance of allowable donors) can be manipulated using sliders). Then, to produce a seed, each gamete of the plant randomly chooses one of the collected grains, after checking it has not been previously used for pollination. (Actually, I need to recode this part, because I think currently one pollen grain can be used by several plants).
+  3. Pollination: Each plant collects pollen from other plants in a distance-dependent manner. The number of potential donors and the neighborhood-size (max distance of allowable donors) can be manipulated using sliders). Then, each gamete of the plant randomly chooses one of the not previously used collected grains, to produce a seed. The seed inherits one set of alleles from the gamete and one from the grain, thus it has a diploid genome. Then, levels of inbreeding are calculated as a function of homozygosity levels (non-linear relationship between homozygosity and inbreeding. The exact shape of the function can be manipulated with a slider) . Then, seed mass is given by drawing a random number from a normal distribution with mean and variance that are manipulatable using a slider and as a factor of inbreeding levels. Finally, for plotting purposes, the plants are given colors as a function of inbreeding levels.
 
-  4. Seed production: The seed inherits one set of alleles from the gamete and one from the chosen pollen-grain, thus it has a diploid genome. Then, an inbreeding coefficient is calculated as a function of homozygosity levels (non-linear relationship between homozygosity and inbreeding. The exact shape of the function can be manipulated with a slider). Then, seed mass is given by drawing a random number from a normal distribution. The mean value of this distribution depends on the dispersal strategy: 
-For the relatedness-dependent strategy, the mean value is the value of homozygosity
-For the relatedness-independent strategy, the mean value is drawn from a poisson distribution whose mean value is maximum-homozygosity/2 
-(so that in both cases the mean mass will be the same)
-Finally, for plotting purposes, the plants are given colors as a function of inbreeding levels.
-
-  4. Dispersal: Each seed disperses in a random direction and to a distance that is a function of its’ mass.
+  4. Dispersal: Each seed disperses in a random direction and to a distance that is a function of its’ mass and a value drawn from a normal distribution with mean and var that are controllable using a slider.
 
   5. After seed dispersal, all mature plants in the landscape die
 
-  6. Spatial genetic structure estimation: each plant calculates its’ genetic distance from all other plants who share the same dispersal-strategy by comparing their genomes and seeing in how many microsatellites they are identical. Then geographic distance is measured, and a plot is made (but for only one individual at this point, I think).
+  6. Spatial genetic structure estimation: each plant calculates its’ genetic distance from all other plants by comparing their genomes and seeing in how many microsatellites they are identical. Then geographic distance is measured, and a plot is made (but for only one individual at this point).
 
 
 ## 4. Design Concepts
@@ -2397,103 +2103,144 @@ Finally, for plotting purposes, the plants are given colors as a function of inb
 
 ## 5. Initialization
  
-X Seeds are created and randomly dispersed in the landscape. Individuals are assigned random genotypes. Seeds turn to plants (or die) in cells (one per cell maximum), according to their mass relative to the mass of all other seeds within the cell (heaviest seed has the higest probability to establish).
+X Seeds of X populations are created. Populations differ in their genotype, so that all individuals within each population have the same initial genotype. 
+One population is completely homozygote, one is completely heterozygote, and the others (if any) are randomly assigned with intermediate levels
+The seeds are either randomly dispersed in the landscape, or are aggregated by population.
+Seeds turn to plants (or die) in cells (one per cell maximum), according to their mass relative to the mass of all other seeds within the cell (heaviest seed establishes).
 
 ## 6. Input Data
  
 ## 7. Submodels
 
-#### population setup
+#### To population setup(If initial-populations = 2 )
+```
+Create N/2 seeds ;; to create the first population
+ If Initial-mix = yes -> Move each seed to a random patch
+ If Initial-mix = no -> Move each seed to a random patch with a y-coordinate larger than initial-gap
+ Set each seed’s home-patch as the current patch it’s on
+ Set mass a random number up to seed-mass
+ Set inbreeding-load 4
+ Set all alleles in the genotype to 2 (the sum of both alleles, where each allele is either 0 or 1)
 
-Create N seeds
-Place each seed in a random patch
-Set each seed’s home-patch as the current patch it’s on 
-Assign half of the seeds to a relatedness-dependent strategy, and the rest to a relatedness-independent strategy 
-Assign each microsattelite with a value of 0, 1 or 2 ;; The value of each microsatelite (ms) represents the sum of values of the two alleles within it, where each allele can have a value of either 0 or 1.
-Set homozygosity & mass ;; explained in the calc-homozygosity procedure
+Create N/2 seeds ;; to create the second population
+ If Initial-mix = yes -> Move each seed to a random patch
+ If Initial-mix = no -> Move each seed to a random patch with a y-coordinate smaller than initial-gap
+ Set each seed’s home-patch as the current patch it’s on
+ Set mass a random number up to seed-mass
+ Set inbreeding-load 4
+ Set all alleles in the genotype to 0 (the sum of both alleles, where each allele is either 0 or 1)
+```
 
-#### Calc homozygosity
-;; To set homozygosity of seed based on its' genotype:
-Set base homozygosity value as 1
-Check the value of each microsatellite. If it is 0 or 2 -> add 1 to homozygosity
-Repeat for all microsatellites.
+#### To population setup (If initial-populations > 2)
+```
+Create N/initial-populations seeds ;; create pop 1
+ Let random-x be one of the patches with no seeds around it in a radius of 3 cells
+ Set pop to 1
+ If initial-mix = yes -> place each seed in a random cell 
+ otherwise, set x and y coordinates as number drawn from a normal distribution with a mean of random-x and variance of 2
+ Set each seed’s home-patch as the current patch it’s on
+ Set mass a random number up to seed-mass
+ Set inbreeding-load 4
+ Set all alleles in the genotype to 2 (the sum of both alleles, where each allele is either 0 or 1)
 
-;; To set seed mass:
-Draw from a normal distribution with a mean of: 
-if rd = true -> X * e ^ ( - random-poisson (homozygosity) / q )
-if rd = false -> X * e ^ ( - random-poisson (5.5) / q )
-;; where X is a value for seed mass that can be changed in the main screen, and q is a constant altering the decline steepness of the relationship-function, which can be changed in the main screen 
+Create N/initial-populations seeds ;; create pop 2
+ Let random-x be one of the patches with no seeds around it in a radius of 3 cells
+ Set pop to 1
+ If initial-mix = yes -> place each seed in a random cell 
+ otherwise, set x and y coordinates as number drawn from a normal distribution with a mean of random-x and variance of 2
+ Set each seed’s home-patch as the current patch it’s on
+ Set mass a random number up to seed-mass
+ Set inbreeding-load 4
+ Set all alleles in the genotype to 0 (the sum of both alleles, where each allele is either 0 or 1)
 
-;; To set inbreeding-load:
- If 1 <= homozygosity <= 2 set inbreeding-load 0
- If 3 < homozygosity <= 4 set inbreeding-load 1
- If 5 < homozygosity <= 6 set inbreeding-load 2
- If 7 < homozygosity <= 8 set inbreeding-load 3
- If 9 < homozygosity <= 10 set inbreeding-load 4
+Let m = 1 ;; create populations 3 +
+ While m <= (initials-populations – 2)
+ Let a-f be either 0 or 2, randomly *used to give the whole population the same genotype*
+ Create N/initial-populations seeds *create pop 3+*
+ Let random-x be one of the patches with no seeds around it in a radius of 3 cells
+ Set pop to m + 2
+ If initial-mix = yes -> place each seed in a random cell 
+ otherwise, set x and y coordinates as number drawn from a normal distribution with a mean of random-x and variance of 2
+ Set each seed’s home-patch as the current patch it’s on
+ Set mass a random number up to seed-mass
+ Set inbreeding-load 4
+ Set all alleles in the genotype according to a-f
+```
 
-
-#### establish
-
-Each patch that has seeds on it chooses one seed. The probability of a seed being chosen is proportional to its mass.
+#### To establish
+```
+Each patch that has seeds on it either asks the heaviest seed to turn into a plant, in probability q, or randomly chooses one of the seeds on it to establish, in a probability of 1-q. 
 The chosen seed hatches one plant, and dies.
 The rest of the seeds on the patch die.
-A proportion of X plants in the landscape are randomly chosen and killed. 
+A proportion of random-extinction plants in the landscape are randomly chosen and killed. 
 Patches with a plant on them are colored green. Patches without a plant on them are colored brown.
+```
 
-
-#### Produce gametes
-
-Each plant produces X gametes. X is a number randomly drawn from a Poisson distribution with a mean of gametes-number. ;; gametes-number can be set in the main screen
-give genotypes to gametes ;; explained in the give-genotype procedure
+#### To produce gametes
+```
+Each plant produces X gametes. X is a number randomly drawn from a Poisson distribution with a mean of gametes-number.
+Each gamete inherits half of its parents alleles in the following manner:
+ If ms-a of the mother-plant = 2, set allele-a of gamete to 1 
+ If ms-a of the mother-plant = 1,  set allele-a of gamete to either 1 or 0 randomly 
+ Otherwise, set allele-a of gamete to 0
+ Repeat for allele-b to allele-i
 Set parent as the mother-plant
+```
 
-
-#### Produce pollen
-
+#### To produce pollen
+```
 Each plant produces X pollen grains. X is a number randomly drawn from a Poisson distribution with a mean of gametes-number * 2.
-give genotypes to pollens
+Each pollen inherits half of its parents alleles in the following manner:
+ If ms-a of the mother-plant = 2, set allele-a of gamete to 1 
+ If ms-a of the mother-plant = 1,  set allele-a of gamete to either 1 or 0 randomly 
+ Otherwise, set allele-a of gamete to 0
+ Repeat for allele-b to allele-i
 Set parent as the mother-plant
 Set pollinated? False ;; used to account for whether the grain was already used for pollination or not
+```
 
-#### Give genotype
-Each gamete/pollen inherits half of its parents alleles in the following manner:
-If ms-a of the mother-plant = 2, set allele-a of gamete to 1 
-If ms-a of the mother-plant = 1,  set allele-a of gamete to either 1 or 0 randomly 
-Otherwise, set allele-a of gamete to 0
-Repeat for allele-b to allele-i
-
-
-#### Produce seeds
-;; To make a list of candidate pollen-grains, chosen in a distance-dependent manner:
-Ask plants to make a list of patches made of:
- X immediate neighbors that have on them other plants with the same rd value as the asking plant
- X / 2 of patches found in a radius larger than 2 and smaller than Y / 2 that have on them other plants with the same rd value as the asking plant
- X / 4 of patches found in a radius larger than Y / 2 and smaller than Y that have on them other plants with the same rd value as the asking plant
-;; X is the number of donors and Y is neighborhood size. Both can be set in the main screen
-Ask plants to make a list of pollens from pollen-grains found on patches that are in the patch list, and who have the same rd value as the asking plant
-Each plant asks each of its gametes to take a random pollen-grain from the list of pollen grains, with pollinated? = false & parent-of-pollen != parent-of-gamete, and use it to create a seed.
-If there is no pollen grain that fulfills these conditions, the gamete dies
-To create the seed’s genotype, sum the value of alleles of the pollen and the gamete in each locus
+#### To produce seeds
+```
+Each plant makes a list of potential pollens found in patches according to the following conditions:
+ Number-of-donors of immediate neighbors
+ Number-of-donors / 2 of individuals found in a radius larger than 2 and smaller than neighborhood-size / 2
+ Number-of-donors / 4 of individuals found in a radius larger than neighborhood-size / 2 and smaller than neighborhood-size
+Each plant asks each of its gametes to take a random pollen-grain from the list, with pollinated? = false & parent-of-pollen != parent-of-gamete, and use it to create a seed.
+ If there is no pollen grain that fulfills these conditions, the gamete dies
+To create the seed’s genotype, I sum the value of alleles of the pollen and the gamete in each locus: ms-a of seed = allele-a of gamete + allele-a of pollen
 Set the pollen’s pollinated? to True
-
+To calculate homozygosity:
+ If ms-a = 0 or 2, set homozygosity + 1
+ Repeat for ms-b to ms-I
+To calculate inbreeding:
+ Inbreeding = 1 – e ^ ( - homozygosity * mass-reduction )
+Set seed mass a number drawn from a normal distribution with a mean of seed-mass * ( 1 – inbreeding), and variance of seed-mass * (1 – inbreeding) / 4
+To set inbreeding-load:
+ If 0 <= homozygosity <= 1 set inbreeding-load 0
+ If 1 < homozygosity <= 3 set inbreeding-load 1
+ If 3 < homozygosity <= 5 set inbreeding-load 2
+ If 5 < homozygosity <= 7 set inbreeding-load 3
+ If 7 < homozygosity <= 9 set inbreeding-load 4
+```
 
 #### To disperse seeds
+```
 Ask pollens to die
 Ask seeds to set home-patch to the current patch they’re on
 If mass > 0 
  turn to a random direction
  Move forward X / mass cells. X is a number drawn from a poisson distribution with a mean of dispersal-distance
 Set distance-travelled as the distance from current patch to home-patch
-
+```
 
 #### To kill parents
-
+```
 ask plants to die
-
+```
 
 #### To calculate spatial genetic structure
- 
-Ask each plant to make a list of all other plants with the same rd? value as itself
+```
+Ask each plant to make a list of all other plants
 For each plant on the list, calculate genetic distance:
  If |ms-a-of-other-plant – ms-a-of-myself| = 2, set genetic-distance + 1/9
  If |ms-a-of-other-plant – ms-a-of-myself| = 1, set genetic-distance + 0.5/9
@@ -2501,7 +2248,7 @@ For each plant on the list, calculate genetic distance:
 Calculate geographic-distance as the eucalidean distance between the two plants
 Put both values in a list
 Repeat for all plants
- 
+```
 
 ## 8. Things I need help with
 
@@ -2820,7 +2567,7 @@ false
 Polygon -7500403 true true 270 75 225 30 30 225 75 270
 Polygon -7500403 true true 30 75 75 30 270 225 225 270
 @#$#@#$#@
-NetLogo 6.2.0
+NetLogo 6.1.1
 @#$#@#$#@
 @#$#@#$#@
 @#$#@#$#@
@@ -2828,374 +2575,44 @@ NetLogo 6.2.0
   <experiment name="experiment" repetitions="10" runMetricsEveryStep="false">
     <setup>setup</setup>
     <go>go</go>
-    <metric>rd.plants.total</metric>
-    <metric>ri.plants.total</metric>
-    <metric>rd.plants.4</metric>
-    <metric>rd.plants.3</metric>
-    <metric>rd.plants.2</metric>
-    <metric>rd.plants.1</metric>
-    <metric>rd.plants.0</metric>
-    <metric>ri.plants.4</metric>
-    <metric>ri.plants.3</metric>
-    <metric>ri.plants.2</metric>
-    <metric>ri.plants.1</metric>
-    <metric>ri.plants.0</metric>
-    <enumeratedValueSet variable="plant_plots">
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="pollination-decay">
-      <value value="1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="dispersal-strategy">
-      <value value="&quot;both&quot;"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="seed_plots">
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="dispersal-homozygosity">
-      <value value="1"/>
-      <value value="0"/>
-      <value value="-1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="links-to-plot">
-      <value value="1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="min-distance">
-      <value value="0.5"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="variable-landscape?">
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="landscape">
-      <value value="&quot;CPF1&quot;"/>
-    </enumeratedValueSet>
+    <metric>count plants with [rd? = true]</metric>
+    <metric>count plants with [rd? = false]</metric>
     <enumeratedValueSet variable="random-extinction">
-      <value value="0.75"/>
+      <value value="0.1"/>
     </enumeratedValueSet>
-    <enumeratedValueSet variable="local-adaptations?">
-      <value value="false"/>
+    <enumeratedValueSet variable="initial-gap">
+      <value value="0"/>
     </enumeratedValueSet>
-    <enumeratedValueSet variable="establishment-costs">
-      <value value="&quot;Yes - deterministic&quot;"/>
+    <enumeratedValueSet variable="N">
+      <value value="500"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="initial-pops">
+      <value value="10"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="neighborhood-size">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Initial-mix">
+      <value value="&quot;Yes&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="seed-mass">
+      <value value="1"/>
+      <value value="5"/>
+      <value value="10"/>
+      <value value="15"/>
+      <value value="20"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="gametes-number">
-      <value value="8"/>
+      <value value="10"/>
     </enumeratedValueSet>
-    <enumeratedValueSet variable="mass-homozygosity">
-      <value value="-1"/>
-      <value value="0"/>
-      <value value="1"/>
+    <enumeratedValueSet variable="dispersal-distance">
+      <value value="3"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="number-of-donors">
       <value value="6"/>
     </enumeratedValueSet>
-  </experiment>
-  <experiment name="experiment" repetitions="1" sequentialRunOrder="false" runMetricsEveryStep="true">
-    <setup>clear-all
-setup</setup>
-    <go>go</go>
-    <timeLimit steps="1000"/>
-    <metric>ticks</metric>
-    <metric>stats:quantile htz_dispersal "heterozygosity" 25</metric>
-    <metric>stats:quantile htz_dispersal "heterozygosity" 50</metric>
-    <metric>stats:quantile htz_dispersal "heterozygosity" 75</metric>
-    <metric>stats:quantile htz_dispersal "dispersal distance" 25</metric>
-    <metric>stats:quantile htz_dispersal "dispersal distance" 50</metric>
-    <metric>stats:quantile htz_dispersal "dispersal distance" 75</metric>
-    <metric>item 1 stats:regress-all htz_dispersal</metric>
-    <metric>item 1 stats:regress-all sgs_large</metric>
-    <metric>item 1 stats:regress-all sgs_fine</metric>
-    <metric>item 0 output_data</metric>
-    <metric>item 1 output_data</metric>
-    <metric>item 2 output_data</metric>
-    <metric>item 3 output_data</metric>
-    <metric>item 4 output_data</metric>
-    <metric>item 5 output_data</metric>
-    <metric>item 6 output_data</metric>
-    <metric>item 7 output_data</metric>
-    <metric>item 8 output_data</metric>
-    <metric>item 9 output_data</metric>
-    <enumeratedValueSet variable="local-adaptations?">
-      <value value="false"/>
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="plant_plots">
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="dispersal-heterozygosity">
-      <value value="1"/>
-      <value value="0"/>
-      <value value="-1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="seed_plots">
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="links-to-plot">
-      <value value="45"/>
-    </enumeratedValueSet>
-  </experiment>
-  <experiment name="experiment" repetitions="1" sequentialRunOrder="false" runMetricsEveryStep="true">
-    <setup>clear-all
-setup</setup>
-    <go>repeat 10 [go]</go>
-    <timeLimit steps="100"/>
-    <metric>quantiles "heterozygosity" 25</metric>
-    <metric>quantiles "heterozygosity" 50</metric>
-    <metric>quantiles "heterozygosity" 75</metric>
-    <metric>quantiles "dispersal distance" 25</metric>
-    <metric>quantiles "dispersal distance" 50</metric>
-    <metric>quantiles "dispersal distance" 75</metric>
-    <metric>coefs htz_dispersal</metric>
-    <metric>coefs sgs_large</metric>
-    <metric>coefs sgs_fine</metric>
-    <metric>fixation_p</metric>
-    <metric>count plants with [bins = 4]</metric>
-    <metric>count plants with [bins = 3]</metric>
-    <metric>count plants with [bins = 2]</metric>
-    <metric>count plants with [bins = 1]</metric>
-    <metric>count plants with [bins = 0]</metric>
-    <enumeratedValueSet variable="local-adaptations?">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="plant_plots">
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="neighborhood-size">
-      <value value="2"/>
-      <value value="3"/>
+    <enumeratedValueSet variable="q">
       <value value="5"/>
-      <value value="7"/>
-      <value value="10"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="dispersal-heterozygosity">
-      <value value="-1"/>
-      <value value="0"/>
-      <value value="1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="seed_plots">
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="dist">
-      <value value="2"/>
-      <value value="3"/>
-      <value value="5"/>
-      <value value="7"/>
-      <value value="10"/>
-    </enumeratedValueSet>
-  </experiment>
-  <experiment name="experiment" repetitions="1" sequentialRunOrder="false" runMetricsEveryStep="true">
-    <setup>clear-all
-setup</setup>
-    <go>repeat 10 [go]</go>
-    <timeLimit steps="100"/>
-    <metric>quantiles "heterozygosity" 25</metric>
-    <metric>quantiles "heterozygosity" 50</metric>
-    <metric>quantiles "heterozygosity" 75</metric>
-    <metric>quantiles "dispersal distance" 25</metric>
-    <metric>quantiles "dispersal distance" 50</metric>
-    <metric>quantiles "dispersal distance" 75</metric>
-    <metric>coefs htz_dispersal 0</metric>
-    <metric>coefs htz_dispersal 1</metric>
-    <metric>coefs sgs_large 0</metric>
-    <metric>coefs sgs_large 1</metric>
-    <metric>coefs sgs_fine 0</metric>
-    <metric>coefs sgs_fine 1</metric>
-    <metric>fixation_p</metric>
-    <metric>count plants with [bins = 4]</metric>
-    <metric>count plants with [bins = 3]</metric>
-    <metric>count plants with [bins = 2]</metric>
-    <metric>count plants with [bins = 1]</metric>
-    <metric>count plants with [bins = 0]</metric>
-    <enumeratedValueSet variable="autocorrelation">
-      <value value="5"/>
-      <value value="10"/>
-      <value value="15"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="local-adaptations?">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="plant_plots">
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="neighborhood-size">
-      <value value="5"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="dispersal-heterozygosity">
-      <value value="-1"/>
-      <value value="0"/>
-      <value value="1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="dist">
-      <value value="3"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="seed_plots">
-      <value value="false"/>
-    </enumeratedValueSet>
-  </experiment>
-  <experiment name="experiment" repetitions="1" sequentialRunOrder="false" runMetricsEveryStep="true">
-    <setup>clear-all
-setup</setup>
-    <go>repeat 10 [go]</go>
-    <timeLimit steps="100"/>
-    <metric>quantiles "heterozygosity" 25</metric>
-    <metric>quantiles "heterozygosity" 50</metric>
-    <metric>quantiles "heterozygosity" 75</metric>
-    <metric>quantiles "dispersal distance" 25</metric>
-    <metric>quantiles "dispersal distance" 50</metric>
-    <metric>quantiles "dispersal distance" 75</metric>
-    <metric>coefs htz_dispersal 0</metric>
-    <metric>coefs htz_dispersal 1</metric>
-    <metric>coefs sgs_large 0</metric>
-    <metric>coefs sgs_large 1</metric>
-    <metric>coefs sgs_fine 0</metric>
-    <metric>coefs sgs_fine 1</metric>
-    <metric>fixation_p</metric>
-    <metric>count plants with [bins = 4]</metric>
-    <metric>count plants with [bins = 3]</metric>
-    <metric>count plants with [bins = 2]</metric>
-    <metric>count plants with [bins = 1]</metric>
-    <metric>count plants with [bins = 0]</metric>
-    <enumeratedValueSet variable="autocorrelation">
-      <value value="5"/>
-      <value value="10"/>
-      <value value="15"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="local-adaptations?">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="plant_plots">
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="neighborhood-size">
-      <value value="5"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="dispersal-heterozygosity">
-      <value value="-1"/>
-      <value value="0"/>
-      <value value="1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="dist">
-      <value value="3"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="seed_plots">
-      <value value="false"/>
-    </enumeratedValueSet>
-  </experiment>
-  <experiment name="experiment" repetitions="1" sequentialRunOrder="false" runMetricsEveryStep="true">
-    <setup>clear-all
-setup</setup>
-    <go>repeat 10 [go]</go>
-    <timeLimit steps="100"/>
-    <metric>quantiles "heterozygosity" 25</metric>
-    <metric>quantiles "heterozygosity" 50</metric>
-    <metric>quantiles "heterozygosity" 75</metric>
-    <metric>quantiles "dispersal distance" 25</metric>
-    <metric>quantiles "dispersal distance" 50</metric>
-    <metric>quantiles "dispersal distance" 75</metric>
-    <metric>coefs htz_dispersal 0</metric>
-    <metric>coefs htz_dispersal 1</metric>
-    <metric>coefs sgs_large 0</metric>
-    <metric>coefs sgs_large 1</metric>
-    <metric>coefs sgs_fine 0</metric>
-    <metric>coefs sgs_fine 1</metric>
-    <metric>fixation_p</metric>
-    <metric>count plants with [bins = 4]</metric>
-    <metric>count plants with [bins = 3]</metric>
-    <metric>count plants with [bins = 2]</metric>
-    <metric>count plants with [bins = 1]</metric>
-    <metric>count plants with [bins = 0]</metric>
-    <enumeratedValueSet variable="fragmentation">
-      <value value="&quot;black uninhabitable&quot;"/>
-      <value value="&quot;black uninhabitable&quot;"/>
-      <value value="&quot;no&quot;"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="changing.landscape">
-      <value value="false"/>
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="autocorrelation">
-      <value value="0.4"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="local-adaptations?">
-      <value value="true"/>
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="Coupled">
-      <value value="true"/>
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="neighborhood-size">
-      <value value="4"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="plant_plots">
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="mutations">
-      <value value="0.01"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="dispersal-heterozygosity">
-      <value value="1"/>
-      <value value="0"/>
-      <value value="-1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="dist">
-      <value value="4"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="seed_plots">
-      <value value="false"/>
-    </enumeratedValueSet>
-  </experiment>
-  <experiment name="experiment" repetitions="1" runMetricsEveryStep="true">
-    <setup>setup</setup>
-    <go>go</go>
-    <metric>count turtles</metric>
-    <enumeratedValueSet variable="fragmentation">
-      <value value="&quot;no&quot;"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="changing.landscape">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="multi-strategies">
-      <value value="&quot;-1 0 1&quot;"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="what-to-plot">
-      <value value="&quot;sgs&quot;"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="Coupled">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="plant_plots">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="sgs.scale">
-      <value value="2.5"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="mutations">
-      <value value="0.05"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="dispersal-relatedness">
-      <value value="-1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="autocorrelation">
-      <value value="0.5"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="local-adaptations?">
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="neighborhood-size">
-      <value value="4"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="strategy">
-      <value value="&quot;positive&quot;"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="strategies">
-      <value value="&quot;multi&quot;"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="dist">
-      <value value="10"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="switch_p">
-      <value value="0.9"/>
     </enumeratedValueSet>
   </experiment>
 </experiments>
@@ -3212,5 +2629,5 @@ true
 Line -7500403 true 150 150 90 180
 Line -7500403 true 150 150 210 180
 @#$#@#$#@
-1
+0
 @#$#@#$#@
