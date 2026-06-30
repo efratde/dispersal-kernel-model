@@ -28,12 +28,12 @@ plants-own [ ms-a ms-b ms-c ms-d ms-e ms-f ms-g ms-h ms-i ;; 9 diallelic microsa
 
 to setup
   ca
-  reset-ticks
   ;; create a green background
   ask patches [ set pcolor 67 + random 8 - random 8 ]
   repeat 20 [ diffuse pcolor 0.25 ]
   populations-setup
   establish
+  reset-ticks ;; moved to the END of setup: on reset-ticks NetLogo (Web/desktop GUI) runs every plot's update commands, so it must run only after the world is populated, otherwise plot pens that take mean/etc. of an empty agentset throw a runtime error and abort setup
   end
 
 to go
@@ -487,7 +487,7 @@ establishment rate
 0.5
 true
 true
-"" "set-plot-y-range 0 precision ( 1 /  gametes-number ) 3"
+"" "if (gametes-number > 0) [ set-plot-y-range 0 precision ( 1 /  gametes-number ) 3 ]"
 PENS
 "inbreeding = 4" 1.0 0 -4079321 true "" "if (ticks > 2) [plot count plants with [inbreeding-load = 4 ] / count seeds with [inbreeding-load = 4 ] ]"
 "inbreeding = 3" 1.0 0 -955883 true "" "if (ticks > 2) [plot count plants with [ inbreeding-load = 3 ] / count seeds with [inbreeding-load = 3 ] ]"
@@ -999,11 +999,11 @@ true
 false
 "" "if (ticks > 2) [set-plot-y-range precision (mean [distance-travelled] of seeds * 0.8) 2 precision (mean [distance-travelled] of seeds * 1.2) 2]"
 PENS
-"inbreeding = 4" 1.0 0 -7171555 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 4]"
-"pen-1" 1.0 0 -955883 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 3]"
-"pen-2" 1.0 0 -2674135 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 2]"
-"pen-3" 1.0 0 -10899396 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 1]"
-"pen-4" 1.0 0 -13345367 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 0]"
+"inbreeding = 4" 1.0 0 -7171555 true "" "if (any? seeds with [inbreeding-load = 4]) [ plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 4] ]"
+"pen-1" 1.0 0 -955883 true "" "if (any? seeds with [inbreeding-load = 3]) [ plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 3] ]"
+"pen-2" 1.0 0 -2674135 true "" "if (any? seeds with [inbreeding-load = 2]) [ plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 2] ]"
+"pen-3" 1.0 0 -10899396 true "" "if (any? seeds with [inbreeding-load = 1]) [ plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 1] ]"
+"pen-4" 1.0 0 -13345367 true "" "if (any? seeds with [inbreeding-load = 0]) [ plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 0] ]"
 
 MONITOR
 1684
@@ -1275,6 +1275,17 @@ PENS
 "default" 1.0 1 -16777216 true "" "histogram [inbreeding] of seeds"
 
 @#$#@#$#@
+# ▶ How to run this model
+
+**This model must be initialized before it will do anything.**
+
+1. Click **`setup`** — you should see flower-shaped plants appear on green patches across the landscape.
+2. Then click **`go`** — the simulation runs generation by generation (establishment → pollination → seed production → dispersal → mortality), and the plots fill in.
+
+> If you click **`go`** *before* **`setup`**, the world is empty: `go` has no plants or seeds to act on, so it simply colors every patch brown ("no plant here") and advances the tick counter — it looks like nothing is happening. Always run **`setup`** first.
+
+---
+
 # My Model Description
 
 
