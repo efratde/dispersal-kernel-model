@@ -1,4 +1,3 @@
-extensions [rnd]
 globals []
 
 breed [ seeds seed ]
@@ -83,7 +82,12 @@ end ;; end population setup
 
 to establish
   ask patches with [any? seeds-here] [ ;; ask patches with any seeds on them:
-  ask rnd:weighted-one-of seeds-here [ mass ] [
+  let total-mass sum [mass] of seeds-here
+  let pick random-float total-mass
+  let chosen one-of seeds-here
+  let cumul 0
+  ask seeds-here [ if cumul <= pick and pick < cumul + mass [ set chosen self ] set cumul cumul + mass ]
+  ask chosen [
         hatch-plants 1 [
           if (rd? = true) [set shape "flower"]
           if (rd? = false) [set shape "plant"]
