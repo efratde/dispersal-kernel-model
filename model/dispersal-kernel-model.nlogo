@@ -5,21 +5,18 @@ breed [ pollens pollen ] ;; male gametes (i.e., pollen grains)
 breed [ gametes gamete ] ;; female gametes (i.e., ovules)
 breed [ plants plant ]
 
-
-seeds-own [ ms-a ms-b ms-c ms-d ms-e ms-f ms-g ms-h ms-i ms-j ms-k ms-l ms-m ms-n ms-o ms-p ms-q ms-r ms-s ms-t;; 20 diallelic microsatellites (as seeds are diploid)
+seeds-own [ ms-a ms-b ms-c ms-d ms-e ms-f ms-g ms-h ms-i ;; 9 diallelic microsatellites (as seeds are diploid)
   mass ;; seed mass, randomly set at initilization, and during the runs is a function of seed-mass slider and inbreeding levels
   home-patch ;; the patch where the seed was created (the patch of its' mother plant)
   inbreeding-load ;; inbreeding level, set to maximum (=4) at initialization, and during the runs it is calculated as a function of homozygosity
   distance-travelled ;; a variable to store the dispersal distance
   pop  ;; to which population the seed belongs. Only used during initialization to cluster together plants belonging to the same population
-  rd? ;; relatedness-dependent dispersal?
-  homozygosity] ;; a temp variable used for calculations of inbreeding load
-pollens-own [ allele-a allele-b allele-c allele-d allele-e allele-f allele-g allele-h allele-i allele-j allele-k allele-l allele-m allele-n allele-o allele-p allele-q allele-r allele-s allele-t  ;; 20 alleles (as propagules are haploid)
+  inbreeding ] ;; a temp variable used for calculations of inbreeding load
+pollens-own [ allele-a allele-b allele-c allele-d allele-e allele-f allele-g allele-h allele-i allele-j  ;; 9 alleles (as propagules are haploid)
   pollinated? ;; a logical helping in the pollination phase to avoid having the same pollen grain pollinate multiple ovules
-  rd?
   parent] ;; a variable used to prevent self-pollination
-gametes-own [ allele-a allele-b allele-c allele-d allele-e allele-f allele-g allele-h allele-i allele-j allele-k allele-l allele-m allele-n allele-o allele-p allele-q allele-r allele-s allele-t parent pop rd?] ;; same as pollen grains
-plants-own [ ms-a ms-b ms-c ms-d ms-e ms-f ms-g ms-h ms-i ms-j ms-k ms-l ms-m ms-n ms-o ms-p ms-q ms-r ms-s ms-t;; 20 diallelic microsatellites (as seeds are diploid)
+gametes-own [ allele-a allele-b allele-c allele-d allele-e allele-f allele-g allele-h allele-i allele-j parent] ;; same as pollen grains
+plants-own [ ms-a ms-b ms-c ms-d ms-e ms-f ms-g ms-h ms-i ;; 9 diallelic microsatellites (as seeds are diploid)
   home-patch ;; inherited from seeds. Used to plot the realized dispersal kernel
   inbreeding-load ;; inbreeding levels, for plotting
   distances-list ;; to measure spatial genetic structure
@@ -27,9 +24,7 @@ plants-own [ ms-a ms-b ms-c ms-d ms-e ms-f ms-g ms-h ms-i ms-j ms-k ms-l ms-m ms
   geographic-distances ;; to measure spatial genetic structure
   genetic-distances ;; to measure spatial genetic structure
   pop ;; to which population the seed belongs. Only used during initialization to cluster together plants belonging to the same population
-  rd?
-  homozygosity] ;; to plot inbreeding levels of plants
-
+  inbreeding] ;; to plot inbreeding levels of plants
 
 to setup
   ca
@@ -43,74 +38,120 @@ to setup
 
 to go
   establish
-  if (count plants with [rd? = true] = 0 or count plants with [rd? = false] = 0) [stop]
   produce-gametes
   produce-pollen
   produce-seeds
   disperse-seeds
   tick
   sgs
-  plot-sgs
   kill-parents
-
   end
 
 
 to populations-setup ;; begin population setup
-  ;; create relatedness-dependent populations:
-  create-seeds Y / 2 [ ;; create rd pop
+  ifelse (initial-pops = 2) ;; if start with only 2 popualtions:
+  [create-seeds N / 2 [ ;; create pop 1
     set shape "dot"
-    setxy random-pxcor random-pycor
-    move-to one-of patches
-    set home-patch patch-here ;; ask each seed to record its' home patch, used later to calculate dispersal distances and spatial genetic structure
-    set ms-a one-of [0 1 2] set ms-b one-of [0 1 2] set ms-c one-of [0 1 2] set ms-d one-of [0 1 2] set ms-e one-of [0 1 2] set ms-f one-of [0 1 2] set ms-g one-of [0 1 2] set ms-h one-of [0 1 2] set ms-i one-of [0 1 2] set ms-j one-of [0 1 2] set ms-k one-of [0 1 2] set ms-l one-of [0 1 2] set ms-m one-of [0 1 2] set ms-n one-of [0 1 2] set ms-o one-of [0 1 2] set ms-p one-of [0 1 2] set ms-q one-of [0 1 2] set ms-r one-of [0 1 2] set ms-s one-of [0 1 2] set ms-t one-of [0 1 2]
-    set rd? true
-    homozygosity-mass
-  ]
-  ;; create relatedness-INdependent populations:
-  create-seeds Y / 2 [ ;; create ri pop
-    set shape "dot"
-    setxy random-pxcor random-pycor
-    move-to one-of patches
+    ifelse (initial-mix = "Yes") ;; mix populations?
+    [setxy random-pxcor random-pycor] ;; if yes - give random coordinates to all seeds
+    [move-to one-of patches with [ pycor > initial-gap ]] ; if no, concentrate all indiivudals of this population to one half of the screen
     set home-patch patch-here ;; ask each seed to record its' home patch, used later to calculate dispersal distances and spatial genetic structure
     set mass random seed-mass ;; give a random mass to each seed
-    ;set ms-a one-of [0 1 2] set ms-b one-of [0 1 2] set ms-c one-of [0 1 2] set ms-d one-of [0 1 2] set ms-e one-of [0 1 2] set ms-f one-of [0 1 2] set ms-g one-of [0 1 2] set ms-h one-of [0 1 2] set ms-i one-of [0 1 2] set ms-j one-of [0 1 2] set ms-k one-of [0 1 2] set ms-l one-of [0 1 2] set ms-m one-of [0 1 2] set ms-n one-of [0 1 2] set ms-o one-of [0 1 2] set ms-p one-of [0 1 2] set ms-q one-of [0 1 2] set ms-r one-of [0 1 2] set ms-s one-of [0 1 2] set ms-t one-of [0 1 2]
-    set rd? false
-    homozygosity-mass
+    set color violet
+    set inbreeding-load 4 ;; initially all individuals are homozygote and thus get the maximum value of inbreeding load
+    set ms-a 2 set ms-b 2 set ms-c 2 set ms-d 2 set ms-e 2 set ms-f 2 set ms-g 2 set ms-h 2 set ms-i 2 ;; give the seeds a homozygote genome
   ]
+    create-seeds N / 2 ;; create pop 2
+  [
+    set shape "dot"
+    ifelse (initial-mix = "Yes") ;; mix populations?
+    [setxy random-pxcor random-pycor] ;; yes
+    [move-to one-of patches with [ pycor < ( 0 - initial-gap ) ]] ;; no
+    set home-patch patch-here
+    set mass random seed-mass
+    set color pink
+    set inbreeding-load 4
+  ]] ;; end of first ifelse
+   ;; if more than 2 initial populations:
+    [create-seeds N / initial-pops [ ;; create first population
+    let random-x one-of patches with [count seeds in-radius 3 = 0] ;; look for a random patch that has no seeds in a radius of 3 patches from it, and set it as X
+    set pop 1 ;; set population number to 1
+    set shape "dot"
+    ifelse (initial-mix = "Yes") ;; mix?
+    [setxy random-pxcor random-pycor] ;; yes
+    [setxy random-normal [pxcor] of random-x 2 random-normal [pycor] of random-x 2] ;; if no - place seed in a 2-patch radius from X
+    set home-patch patch-here
+    set mass random seed-mass
+    set color violet
+    set inbreeding-load 4
+    set ms-a 2 set ms-b 2 set ms-c 2 set ms-d 2 set ms-e 2 set ms-f 2 set ms-g 2 set ms-h 2 set ms-i 2
+  ]
+     ; create second population
+    create-seeds N / initial-pops [
+    let random-x one-of patches with [count seeds in-radius 3 = 0]
+    set pop 2
+    set shape "dot"
+    ifelse (initial-mix = "Yes") ;; Mix?
+    [setxy random-pxcor random-pycor] ;; yes
+    [setxy random-normal [pxcor] of random-x 2 random-normal [pycor] of random-x 2] ;; no
+    set home-patch patch-here
+    set mass random seed-mass
+    set color pink
+    set inbreeding-load 4
+
+  ]
+    let m 1 ;; to create populations 3 +, start by making a temp variable named m and set it to 1
+  while [m <= (initial-pops - 2 )] [ ;; while m is smaller or equal to the number of populations minus the first two populations:
+  let a one-of [0 2] let b one-of [0 2] let c one-of [0 2] let d one-of [0 2] let e1 one-of [0 2] let f one-of [0 2] let g one-of [0 2] let h one-of [0 2] let i one-of [0 2] ;; create a random but homozygote genome
+  create-seeds N / initial-pops [
+    let random-x one-of patches with [count seeds in-radius 1 = 0]
+    set pop m + 2
+    set shape "dot"
+    ifelse (initial-mix = "Yes") ;; Mix?
+    [setxy random-pxcor random-pycor] ;; yes
+    [setxy random-normal [pxcor] of random-x 0.5 random-normal [pycor] of random-x 0.5] ;; no
+    set home-patch patch-here
+    set mass random seed-mass
+    set color ( 15 * m )
+    set inbreeding-load 4
+    set ms-a a set ms-b b set ms-c c set ms-d d set ms-e e1 set ms-f f set ms-g g set ms-h g set ms-i i
+    ]
+    set m m + 1
+  ]]
 end ;; end population setup
 
-to establish
-  ask patches with [any? seeds-here] [ ;; ask patches with any seeds on them:
-  let total-mass sum [mass] of seeds-here
-  let pick random-float total-mass
-  let chosen one-of seeds-here
-  let cumul 0
-  ask seeds-here [ if cumul <= pick and pick < cumul + mass [ set chosen self ] set cumul cumul + mass ]
-  ask chosen [
-        hatch-plants 1 [
-          if (rd? = true) [set shape "flower"]
-          if (rd? = false) [set shape "plant"]
+to establish ;; beginning of to-establish
+  ask patches with [any? seeds-here] [ ; Ask patches with any seeds on them:
+      ifelse (random-float 1.0 < q) ; in probability q
+    [ask max-one-of seeds-here [mass] [ ; heaviest seed in each patch establishes (or 1 random seed out of all the heaviest seeds)
+      hatch-plants 1 [ ; the chosen seed hatches a plant
+        set shape "flower" ; give the plant a flower shape
+      set size 1 ;  set its size
         ]
+      ask other seeds-here [die] ; and the rest of the seeds in the patch die
+      die ; the established seed dies
+      ]]
+      [ask n-of 1 seeds-here [hatch-plants 1 [ ; if the above condition is not fulfilled, one random seed establishes and turns to a plant
+        set shape "flower" ; give the plant a flower shape
+      set size 1 ; set its size
+        ]
+      ask other seeds-here [die] ; and the others die
+      die ; the established seed dies
 
-    set-current-plot "mass of established"
-    clear-plot
-    set-plot-pen-color black histogram ([mass] of seeds-here )
-    set-plot-pen-color red plotxy ( [mass] of self ) 1
-
-    ask other seeds-here [die]
-    die
-  ]]
- ask plants [
- if (random-float 1.0 > 1 - random-extinction) [die] ; randomly kill random-extinction % of all plants
+      ]]]
+  ask plants [
+    if (random-float 1.0 > 1 - random-extinction) [die] ; randomly kill random-extinction % of all plants
   ]
   ask patches with [count plants-here < 1] [set pcolor brown] ; color patches with no plants in brown
   ask patches with [count plants-here = 1] [set pcolor green + 2] ; color patches with plants in green
   display ; update the display
-end
+end ;; end of to establish
 
-to genotype
-      ;; to inherit genome:
+to produce-gametes ;; beginning of to-produce-gametes
+    ask plants [ ;; ask all plants
+  hatch-gametes random-poisson gametes-number [ ;; to produce X gametes. X is a number drawn from a poisson distribution (chose it because it's appropriate for discrete data) with mean and sd determined by a slider
+    set shape "x" ;; set shape to X
+    ;; to inherit genome:
       ifelse ([ms-a] of myself = 2) [set allele-a 1] ;; if the plant producing the gamete is homozygote 11 in microsattelite a give the gamete allele 1 in this microsattelite
       [if ([ms-a] of myself = 1) [set allele-a (one-of [1 0])]] ;; if it is heterozygote, give either 1 or 0 randomly
                                                                 ;; if both above conditions are not satisfied, 0 will be given automatically
@@ -132,35 +173,6 @@ to genotype
       ifelse ([ms-i] of myself = 2) [set allele-i 1]
       [if ([ms-i] of myself = 1) [set allele-i (one-of [1 0])]]
 
-      ifelse ([ms-j] of myself = 2) [set allele-j 1]
-      [if ([ms-j] of myself = 1) [set allele-j (one-of [1 0])]]
-      ifelse ([ms-k] of myself = 2) [set allele-k 1]
-      [if ([ms-k] of myself = 1) [set allele-k (one-of [1 0])]]
-      ifelse ([ms-l] of myself = 2) [set allele-l 1]
-      [if ([ms-l] of myself = 1) [set allele-l (one-of [1 0])]]
-      ifelse ([ms-m] of myself = 2) [set allele-m 1]
-      [if ([ms-m] of myself = 1) [set allele-m (one-of [1 0])]]
-      ifelse ([ms-n] of myself = 2) [set allele-n 1]
-      [if ([ms-n] of myself = 1) [set allele-n (one-of [1 0])]]
-      ifelse ([ms-o] of myself = 2) [set allele-o 1]
-      [if ([ms-o] of myself = 1) [set allele-o (one-of [1 0])]]
-      ifelse ([ms-p] of myself = 2) [set allele-p 1]
-      [if ([ms-p] of myself = 1) [set allele-p (one-of [1 0])]]
-      ifelse ([ms-q] of myself = 2) [set allele-q 1]
-      [if ([ms-q] of myself = 1) [set allele-q (one-of [1 0])]]
-      ifelse ([ms-r] of myself = 2) [set allele-r 1]
-      [if ([ms-r] of myself = 1) [set allele-r (one-of [1 0])]]
-      ifelse ([ms-s] of myself = 2) [set allele-s 1]
-      [if ([ms-s] of myself = 1) [set allele-s (one-of [1 0])]]
-      ifelse ([ms-t] of myself = 2) [set allele-t 1]
-      [if ([ms-t] of myself = 1) [set allele-t (one-of [1 0])]]
-end
-
-to produce-gametes ;; beginning of to-produce-gametes
-    ask plants [ ;; ask all plants
-    hatch-gametes random-poisson gametes-number [ ;; to produce X gametes. X is a number drawn from a poisson distribution (chose it because it's appropriate for discrete data) with mean and sd determined by a slider
-    set shape "x" ;; set shape to X
-    genotype
     set parent myself ;; keep track of who the parent plant is. Will be used later to prevent self-pollination.
   ]]
 end ;; end of to produce-gametes
@@ -170,24 +182,45 @@ to produce-pollen ;; beginning of to produce-pollen
     hatch-pollens random-poisson gametes-number * 2 [ ;; to produce X pollen grains. X is a number drawn from a poisson distribution (chose it because it's appropriate for discrete data) with mean and sd determined by a slider
     set shape "dot" ;; set shape to O
     set pollinated? false ;; create a logical variable that tells whether this grain was alredy used for pollination. Set it initially to false. This is later used to make sure each grain is only used once.
-    genotype
+    ;; to inherit genome:
+      ifelse ([ms-a] of myself = 2) [set allele-a 1] ;; if the plant producing the gamete is homozygote 11 in microsattelite a give the gamete allele 1 in this microsattelite
+      [if ([ms-a] of myself = 1) [set allele-a (one-of [1 0])]] ;; if it is heterozygote, give either 1 or 0 randomly
+                                                                ;; if both above conditions are not satisfied, 0 will be given automatically
+    ;; the same as above, for the rest of the microsattelites:
+      ifelse ([ms-b] of myself = 2) [set allele-b 1]
+      [if ([ms-b] of myself = 1) [set allele-b (one-of [1 0])]]
+      ifelse ([ms-c] of myself = 2) [set allele-c 1]
+      [if ([ms-c] of myself = 1) [set allele-c (one-of [1 0])]]
+      ifelse ([ms-d] of myself = 2) [set allele-d 1]
+      [if ([ms-d] of myself = 1) [set allele-d (one-of [1 0])]]
+      ifelse ([ms-e] of myself = 2) [set allele-e 1]
+      [if ([ms-e] of myself = 1) [set allele-e (one-of [1 0])]]
+      ifelse ([ms-f] of myself = 2) [set allele-f 1]
+      [if ([ms-f] of myself = 1) [set allele-f (one-of [1 0])]]
+      ifelse ([ms-g] of myself = 2) [set allele-g 1]
+      [if ([ms-g] of myself = 1) [set allele-g (one-of [1 0])]]
+      ifelse ([ms-h] of myself = 2) [set allele-h 1]
+      [if ([ms-h] of myself = 1) [set allele-h (one-of [1 0])]]
+      ifelse ([ms-i] of myself = 2) [set allele-i 1]
+      [if ([ms-i] of myself = 1) [set allele-i (one-of [1 0])]]
+
     set parent myself ;; keep track of who the parent plant is. Will be used later to prevent self-pollination.
    ]]
 end ;; end of to produce-pollen
 
 to produce-seeds ;; beginning of to produce seeds
-ask plants [ ;; ask each plant
-    let the-patches patch-set ( list ;; to make the following list of patches:
-      (up-to-n-of number-of-donors neighbors with [any? plants with [rd? = [rd?] of self]]) ;; n neighboring plants, where n is the number of donors as set in the main screen
-      (up-to-n-of (number-of-donors / 2) patches with [(distance myself) >= 2  and (distance myself) < neighborhood-size / 2  and any? plants with [rd? = [rd?] of self]]) ;; n/2 plants in distance class 2, which is a function of the neighborhood size as set in the main screen
-      (up-to-n-of (number-of-donors / 4) patches with [(distance myself) >= 3  and (distance myself) < neighborhood-size  and any? plants with [rd? = [rd?] of self]]) ) ;; n/4 plants in distance class 3, which is a function of the neighborhood size as set in the main screen
-    let the-pollens [pollens-here with [rd? = [rd?] of self]] of the-patches ;; take all pollen grains found on the patches in the above-mentioned patches-list
-    let the-pollens-set turtle-set the-pollens ;; and put them in an agentset
+  ask plants [ ;; ask each plant
+let the-patches patch-set ( list ;; to make the following list of patches:
+      (up-to-n-of number-of-donors neighbors with [any? plants]) ;; n neighboring plants, where n is the number of donors as set in the main screen
+      (up-to-n-of (number-of-donors / 2) patches with [(distance myself) >= 2  and (distance myself) < neighborhood-size / 2  and any? plants]) ;; n/2 plants in distance class 2, which is a function of the neighborhood size as set in the main screen
+      (up-to-n-of (number-of-donors / 4) patches with [(distance myself) >= 3  and (distance myself) < neighborhood-size  and any? plants]) ) ;; n/4 plants in distance class 3, which is a function of the neighborhood size as set in the main screen
+let the-pollens [pollens-here] of the-patches ;; take all pollen grains found on the patches in the above-mentioned patches-list
+let the-pollens-set turtle-set the-pollens ;; and put them in an agentset
 
-ask gametes with [parent = myself] [ ;; each plant asks each of its gametes
-      let pollinator one-of the-pollens-set with [pollinated? = false and parent != [ parent ] of myself] ;; to find one pollen grain from the pollens agentset, who has not been used for pollination before, and who was not produced by this plant
-      hatch-seeds 1 [ ;; and to produce one seed
-      if (pollinator = nobody) [die] ;; if there is no pollen donor, the seed dies
+    ask gametes with [parent = myself] [ ;; each plant asks each of its gametes
+let pollinator one-of the-pollens-set with [pollinated? = false and parent != [ parent ] of myself] ;; to find one pollen grain from the pollens agentset, who has not been used for pollination before, and who was not produced by this plant
+  hatch-seeds 1 [ ;; and to produce one seed
+    if (pollinator = nobody) [die] ;; if there is no pollen donor, the seed dies
       set shape "dot" ;; set seed's shape
         ;; set genotype: sum the alleles in each locus of the gamete and of the pollen grain
         set ms-a [allele-a] of myself + [allele-a] of pollinator
@@ -199,63 +232,39 @@ ask gametes with [parent = myself] [ ;; each plant asks each of its gametes
         set ms-g [allele-g] of myself + [allele-g] of pollinator
         set ms-h [allele-h] of myself + [allele-h] of pollinator
         set ms-i [allele-i] of myself + [allele-i] of pollinator
-        set ms-j [allele-j] of myself + [allele-j] of pollinator
-        set ms-k [allele-k] of myself + [allele-k] of pollinator
-        set ms-l [allele-l] of myself + [allele-l] of pollinator
-        set ms-m [allele-m] of myself + [allele-m] of pollinator
-        set ms-n [allele-n] of myself + [allele-n] of pollinator
-        set ms-o [allele-o] of myself + [allele-o] of pollinator
-        set ms-p [allele-p] of myself + [allele-p] of pollinator
-        set ms-q [allele-q] of myself + [allele-q] of pollinator
-        set ms-r [allele-r] of myself + [allele-r] of pollinator
-        set ms-s [allele-s] of myself + [allele-s] of pollinator
-        set ms-t [allele-t] of myself + [allele-t] of pollinator
 
         ask pollinator [set pollinated?  True] ;; set the pollen-grain's as pollinated, so it will not be used for pollination again
-        homozygosity-mass]
-        die ;; the gamete that produced the seed dies.
+
+    let homozygosity 0 ;; setup a homozygosity variable, set its level to 0.
+    ;; look at each locus. If the sum of both alleles is either 0 or 2, it means it is homozygous in this locus. In such case, add 1 to homozygosity level
+    if (ms-a = 0 or ms-a = 2) [set homozygosity homozygosity + 1 ]
+    if (ms-b = 0 or ms-b = 2) [set homozygosity homozygosity + 1 ]
+    if (ms-c = 0 or ms-c = 2)  [set homozygosity homozygosity + 1 ]
+    if (ms-d = 0 or ms-d = 2)  [set homozygosity homozygosity + 1 ]
+    if (ms-e = 0 or ms-e = 2)  [set homozygosity homozygosity + 1 ]
+    if (ms-f = 0 or ms-f = 2)  [set homozygosity homozygosity + 1 ]
+    if (ms-g = 0 or ms-g = 2)  [set homozygosity homozygosity + 1 ]
+    if (ms-h = 0 or ms-h = 2)  [set homozygosity homozygosity + 1 ]
+    if (ms-i = 0 or ms-i = 2)  [set homozygosity homozygosity + 1 ]
+
+
+    set inbreeding 1 - e ^ ( - homozygosity * mass-reduction ) ;; when mass-reduction = 0 -> inbreeding = 0 | when mass-reduction = 1 -> inbreeding increases logarithmically
+    set mass ( random-normal (seed-mass * (1 - inbreeding)) (seed-mass * (1 - inbreeding) / 4) ) ;; set seed mass as a random number with mean determined by a slider and as a function of the seed's inbreeding level
+    ;; color seeds according to their homozygosity levels, so they can be tracked in the different plots:
+      if (homozygosity >= 0 and homozygosity <= 1 ) [set color scale-color blue inbreeding (- 9 ) (9 ) set inbreeding-load 0]
+      if (homozygosity > 1 and homozygosity <= 3 ) [set color scale-color green inbreeding (-9) (9 ) set inbreeding-load 1]
+      if (homozygosity > 3 and homozygosity <= 5 ) [set color scale-color red inbreeding (-9) (9) set inbreeding-load 2]
+      if (homozygosity > 5 and homozygosity <= 7 ) [set color scale-color orange inbreeding (-9) (9) set inbreeding-load 3]
+      if (homozygosity > 7 and homozygosity <= 9 ) [set color scale-color yellow inbreeding (-9) (9) set inbreeding-load 4]
+
+        set inbreeding inbreeding * 10 ;; since 0 < inbreeding < 1, and I want to plot histograms, I multiply it by 10.
+      ]
+
+
+      die ;; the gamete that produced the seed dies.
   ]
   ]
 end ;; end of to produce-seeds
-
-to homozygosity-mass
-      set homozygosity 0 ;; setup a homozygosity variable, set its level to 1.
-    ;; look at each locus. If the sum of both alleles is either 0 or 2, it means it is homozygous in this locus. In such case, add 1 to homozygosity level
-    if (ms-a = 0 or ms-a = 2) [set homozygosity homozygosity + 0.5 ]
-    if (ms-b = 0 or ms-b = 2) [set homozygosity homozygosity + 0.5 ]
-    if (ms-c = 0 or ms-c = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-d = 0 or ms-d = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-e = 0 or ms-e = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-f = 0 or ms-f = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-g = 0 or ms-g = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-h = 0 or ms-h = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-i = 0 or ms-i = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-j = 0 or ms-j = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-k = 0 or ms-k = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-l = 0 or ms-l = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-m = 0 or ms-m = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-n = 0 or ms-n = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-o = 0 or ms-o = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-p = 0 or ms-p = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-q = 0 or ms-q = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-r = 0 or ms-r = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-s = 0 or ms-s = 2)  [set homozygosity homozygosity + 0.5 ]
-    if (ms-t = 0 or ms-t = 2)  [set homozygosity homozygosity + 0.5 ]
-
-    if (rd? = true) [
-          set mass ( random-normal (seed-mass * e ^ ( - (random-poisson homozygosity) / Z)) 1) ]
-
-    if (rd? = false) [
-          set mass ( random-normal (seed-mass * e ^ ( - ( random-poisson 5.5 ) / Z)) 1 )]
-        if (mass < 0 ) [set mass 0 ]
-        ;; color seeds according to their homozygosity levels, so they can be tracked in the different plots:
-      ifelse (homozygosity >= 1 and homozygosity <= 2 ) [set color blue set inbreeding-load 0]
-      [ifelse (homozygosity >= 3 and homozygosity <= 4 ) [set color green set inbreeding-load 1]
-      [ifelse (homozygosity >= 5 and homozygosity <= 6 ) [set color red set inbreeding-load 2]
-      [ifelse (homozygosity >= 7 and homozygosity <= 8 ) [set color orange  set inbreeding-load 3]
-      [if (homozygosity >= 9 and homozygosity <= 10 ) [set color yellow  set inbreeding-load 4]]]]]
-
-end
 
 to disperse-seeds ;; beginning of to disperse
   ask pollens [die] ;; kill all pollen grains
@@ -263,7 +272,7 @@ to disperse-seeds ;; beginning of to disperse
    set home-patch patch-here ;; to record their home-patch (to calculate dispersal distance later on)
     if (mass > 0) [ ;; if the seed has a mass of 0 or less, it does not disperse
     rt random 360 ;; choose a random dispersal direction
-  forward  dispersal-distance  / sqrt (mass) ;; move (X / mass) units. X is a number drawn from a normal distribution who's mean and var are controlable by a slider
+  forward ( random-normal dispersal-distance dispersal-distance) / mass ;; move (X / mass) units. X is a number drawn from a normal distribution who's mean and var are controlable by a slider
       set distance-travelled distancexy ([pxcor] of home-patch) ([pycor] of home-patch) ;; after dispersal, calculate dispersal distance by measuring the distance between the current patch and the home patch
   ]]
 end ;; end of to disperse
@@ -274,7 +283,7 @@ end ;; end of kill-parents
 
 to sgs ;; beginning of to sgs - to calculate spatial genetic structure
 ask plants [ ;; ask each plant
-  let other-plants (other plants with [rd? = [rd?] of self]) ;; make a temporary list of all other plants
+  let other-plants (other plants) ;; make a temporary list of all other plants
   set genetic-distances [] ;; set an empty list of genetic distances
   set geographic-distances [] ;; set an empty list of geographic distances
   set distances-list [] ;; set an empty list of distances
@@ -282,65 +291,32 @@ ask plants [ ;; ask each plant
   foreach sort other-plants [ [candidate] -> ;; go through all the plants in the other-plants list, one by one
     let genetic-distance 0 ;; make a temp variable named genetic-distance, set it to 0
 
-    ifelse (abs([ms-a] of candidate - ms-a) = 2) [set genetic-distance genetic-distance + (1 / 20)] ;; if both plants are homozygote, but each one has different alleles (so one is 00 and one is 22), add 1 to the value of genetic distance
-    [if (abs([ms-a] of candidate - ms-a) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]] ;; if both plants have only one allele in common, add 0.5 to the value of genetic distance. If both conditions are not fulfilled, genetic distance will remain in its' previous value
+    ifelse (abs([ms-a] of candidate - ms-a) = 2) [set genetic-distance genetic-distance + (1 / 9)] ;; if both plants are homozygote, but each one has different alleles (so one is 00 and one is 22), add 1 to the value of genetic distance
+    [if (abs([ms-a] of candidate - ms-a) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]] ;; if both plants have only one allele in common, add 0.5 to the value of genetic distance. If both conditions are not fulfilled, genetic distance will remain in its' previous value
                                                                                                    ;; repeat for all microsattelites:
-    ifelse (abs([ms-b] of candidate - ms-b) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-b] of candidate - ms-b) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+    ifelse (abs([ms-b] of candidate - ms-b) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-b] of candidate - ms-b) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
-    ifelse (abs([ms-c] of candidate - ms-c) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-c] of candidate - ms-c) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+    ifelse (abs([ms-c] of candidate - ms-c) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-c] of candidate - ms-c) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
-    ifelse (abs([ms-d] of candidate - ms-d) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-d] of candidate - ms-d) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+    ifelse (abs([ms-d] of candidate - ms-d) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-d] of candidate - ms-d) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
-    ifelse (abs([ms-e] of candidate - ms-e) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-e] of candidate - ms-e) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+    ifelse (abs([ms-e] of candidate - ms-e) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-e] of candidate - ms-e) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
-    ifelse (abs([ms-f] of candidate - ms-f) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-f] of candidate - ms-f) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+    ifelse (abs([ms-f] of candidate - ms-f) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-f] of candidate - ms-f) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
-    ifelse (abs([ms-g] of candidate - ms-g) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-g] of candidate - ms-g) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+    ifelse (abs([ms-g] of candidate - ms-g) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-g] of candidate - ms-g) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
-    ifelse (abs([ms-h] of candidate - ms-h) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-h] of candidate - ms-h) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+    ifelse (abs([ms-h] of candidate - ms-h) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-h] of candidate - ms-h) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
-    ifelse (abs([ms-i] of candidate - ms-i) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-i] of candidate - ms-i) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-j] of candidate - ms-j) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-j] of candidate - ms-j) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-k] of candidate - ms-k) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-k] of candidate - ms-k) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-l] of candidate - ms-l) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-l] of candidate - ms-l) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-m] of candidate - ms-m) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-m] of candidate - ms-m) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-n] of candidate - ms-n) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-n] of candidate - ms-n) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-o] of candidate - ms-o) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-o] of candidate - ms-o) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-p] of candidate - ms-p) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-p] of candidate - ms-p) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-q] of candidate - ms-q) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-q] of candidate - ms-q) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-r] of candidate - ms-r) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-r] of candidate - ms-r) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-s] of candidate - ms-s) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-s] of candidate - ms-s) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-t] of candidate - ms-t) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-t] of candidate - ms-t) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+    ifelse (abs([ms-i] of candidate - ms-i) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-i] of candidate - ms-i) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
     set genetic-distances lput precision (genetic-distance) 3 genetic-distances ;; add the calculated genetic distance to a list of all genetic distances
     set geographic-distances lput precision ([distance myself] of candidate) 3 geographic-distances ;; calculate the geographic distance between the two plants, and add this value to a list of all geographic distances
@@ -348,32 +324,17 @@ ask plants [ ;; ask each plant
 
   ]
 
+  set-current-plot "spatial genetic structure" ;; to plot the spatial genetic structure of an individual:
+
+  let m 0 ;; make a temp variable, for plotting purposes
+  while [m < length distances-list ] ;; m is the same size as the above-mentioned lists
+
+  [plotxy item m geographic-distances item m genetic-distances ;; go over each row in the list, and plot its' position on a scatter-plot, where x is the geographic distance and y is the genetic distance.
+    set m m + 1] ;; move to the next row
 
 ]
 
 end ;; end of to-sgs
-
-to plot-sgs
-  set-current-plot "rd spatial genetic structure" ;; to plot the spatial genetic structure of an individual:
-  ask plants with [rd? = true] [
-
-  let m 0 ;; make a temp variable, for plotting purposes
-  while [m < length distances-list ] ;; m is the same size as the above-mentioned lists
-
-  [plotxy item m geographic-distances item m genetic-distances ;; go over each row in the list, and plot its' position on a scatter-plot, where x is the geographic distance and y is the genetic distance.
-    set m m + 1] ;; move to the next row
-  ]
-    set-current-plot "ri spatial genetic structure" ;; to plot the spatial genetic structure of an individual:
-  ask plants with [rd? = false][
-
-  let m 0 ;; make a temp variable, for plotting purposes
-  while [m < length distances-list ] ;; m is the same size as the above-mentioned lists
-
-  [plotxy item m geographic-distances item m genetic-distances ;; go over each row in the list, and plot its' position on a scatter-plot, where x is the geographic distance and y is the genetic distance.
-    set m m + 1] ;; move to the next row
-  ]
-end
-
 
 to-report ind-sgs [plant-a candidate] ;; make a reporter so I can monitor the calculation of the sgs.
 
@@ -384,66 +345,32 @@ to-report ind-sgs [plant-a candidate] ;; make a reporter so I can monitor the ca
 ask plant-a [
 
 
-    ifelse (abs([ms-a] of candidate - ms-a) = 2) [set genetic-distance genetic-distance + (1 / 20)] ;; if both plants are homozygote, but each one has different alleles (so one is 00 and one is 22), add 1 to the value of genetic distance
-    [if (abs([ms-a] of candidate - ms-a) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]] ;; if both plants have only one allele in common, add 0.5 to the value of genetic distance. If both conditions are not fulfilled, genetic distance will remain in its' previous value
-                                                                                                   ;; repeat for all microsattelites:
-    ifelse (abs([ms-b] of candidate - ms-b) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-b] of candidate - ms-b) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+    ifelse (abs([ms-a] of candidate - ms-a) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-a] of candidate - ms-a) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
-    ifelse (abs([ms-c] of candidate - ms-c) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-c] of candidate - ms-c) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+    ifelse (abs([ms-b] of candidate - ms-b) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-b] of candidate - ms-b) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
-    ifelse (abs([ms-d] of candidate - ms-d) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-d] of candidate - ms-d) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+    ifelse (abs([ms-c] of candidate - ms-c) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-c] of candidate - ms-c) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
-    ifelse (abs([ms-e] of candidate - ms-e) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-e] of candidate - ms-e) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+    ifelse (abs([ms-d] of candidate - ms-d) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-d] of candidate - ms-d) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
-    ifelse (abs([ms-f] of candidate - ms-f) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-f] of candidate - ms-f) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+    ifelse (abs([ms-e] of candidate - ms-e) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-e] of candidate - ms-e) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
-    ifelse (abs([ms-g] of candidate - ms-g) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-g] of candidate - ms-g) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+    ifelse (abs([ms-f] of candidate - ms-f) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-f] of candidate - ms-f) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
-    ifelse (abs([ms-h] of candidate - ms-h) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-h] of candidate - ms-h) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+    ifelse (abs([ms-g] of candidate - ms-g) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-g] of candidate - ms-g) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
-    ifelse (abs([ms-i] of candidate - ms-i) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-i] of candidate - ms-i) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
+    ifelse (abs([ms-h] of candidate - ms-h) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-h] of candidate - ms-h) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
-    ifelse (abs([ms-j] of candidate - ms-j) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-j] of candidate - ms-j) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-k] of candidate - ms-k) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-k] of candidate - ms-k) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-l] of candidate - ms-l) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-l] of candidate - ms-l) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-m] of candidate - ms-m) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-m] of candidate - ms-m) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-n] of candidate - ms-n) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-n] of candidate - ms-n) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-o] of candidate - ms-o) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-o] of candidate - ms-o) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-p] of candidate - ms-p) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-p] of candidate - ms-p) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-q] of candidate - ms-q) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-q] of candidate - ms-q) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-r] of candidate - ms-r) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-r] of candidate - ms-r) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-s] of candidate - ms-s) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-s] of candidate - ms-s) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
-    ifelse (abs([ms-t] of candidate - ms-t) = 2) [set genetic-distance genetic-distance + (1 / 20)]
-    [if (abs([ms-t] of candidate - ms-t) = 1) [set genetic-distance genetic-distance + (0.5 / 20)]]
-
+    ifelse (abs([ms-i] of candidate - ms-i) = 2) [set genetic-distance genetic-distance + (1 / 9)]
+    [if (abs([ms-i] of candidate - ms-i) = 1) [set genetic-distance genetic-distance + (0.5 / 9)]]
 
 set geographic-distance distance candidate
  ]
@@ -454,13 +381,13 @@ let output (word "geographic: " precision geographic-distance 3 " genetic: " pre
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
-7
-249
-321
-564
+0
+10
+432
+443
 -1
 -1
-14.6
+20.2
 1
 10
 1
@@ -481,10 +408,10 @@ ticks
 10.0
 
 BUTTON
-54
-10
-117
-43
+837
+421
+900
+454
 NIL
 setup
 NIL
@@ -498,10 +425,10 @@ NIL
 1
 
 BUTTON
-204
-10
-267
-43
+1012
+416
+1075
+449
 NIL
 go
 T
@@ -515,25 +442,25 @@ NIL
 1
 
 SLIDER
-0
-47
-172
-80
-Y
-Y
+786
+468
+958
+501
+N
+N
 2
 500
-500.0
+82.0
 2
 1
-# seeds
+NIL
 HORIZONTAL
 
 BUTTON
-280
-10
-355
-43
+1088
+416
+1163
+449
 go once
 go
 NIL
@@ -547,13 +474,13 @@ NIL
 1
 
 PLOT
-458
-10
-746
-142
-ri establishment rates
+816
+11
+1237
+221
+establishment rates
 ticks
-est. rate
+establishment rate
 0.0
 10.0
 0.0
@@ -562,33 +489,33 @@ true
 true
 "" "set-plot-y-range 0 precision ( 1 /  gametes-number ) 3"
 PENS
-"inbreeding = 4" 1.0 0 -4079321 true "" "if (ticks > 2) [plot count plants with [inbreeding-load = 4 and rd? = false] / count seeds with [inbreeding-load = 4  and rd? = false] ]"
-"inbreeding = 3" 1.0 0 -955883 true "" "if (ticks > 2) [plot count plants with [ inbreeding-load = 3  and rd? = false] / count seeds with [inbreeding-load = 3  and rd? = false] ]"
-"inbreeding = 2" 1.0 0 -2674135 true "" "if (ticks > 2) [plot count plants with [ inbreeding-load = 2  and rd? = false] / count seeds with [inbreeding-load = 2  and rd? = false] ]"
-"inbreeding = 1" 1.0 0 -10899396 true "" "if (ticks > 2) [plot count plants with [ inbreeding-load = 1  and rd? = false] / count seeds with [inbreeding-load = 1  and rd? = false] ]"
-"inbreeding = 0" 1.0 0 -13345367 true "" "if (ticks > 2) [plot count plants with [ inbreeding-load = 0  and rd? = false] / count seeds with [inbreeding-load = 0  and rd? = false] ]"
-"total" 1.0 0 -16777216 true "" "if (ticks > 2) [plot count plants with [rd? = false] / count seeds with [rd? = false] ]"
+"inbreeding = 4" 1.0 0 -4079321 true "" "if (ticks > 2) [plot count plants with [inbreeding-load = 4 ] / count seeds with [inbreeding-load = 4 ] ]"
+"inbreeding = 3" 1.0 0 -955883 true "" "if (ticks > 2) [plot count plants with [ inbreeding-load = 3 ] / count seeds with [inbreeding-load = 3 ] ]"
+"inbreeding = 2" 1.0 0 -2674135 true "" "if (ticks > 2) [plot count plants with [ inbreeding-load = 2 ] / count seeds with [inbreeding-load = 2 ] ]"
+"inbreeding = 1" 1.0 0 -10899396 true "" "if (ticks > 2) [plot count plants with [ inbreeding-load = 1 ] / count seeds with [inbreeding-load = 1 ] ]"
+"inbreeding = 0" 1.0 0 -13345367 true "" "if (ticks > 2) [plot count plants with [ inbreeding-load = 0 ] / count seeds with [inbreeding-load = 0 ] ]"
+"total" 1.0 0 -16777216 true "" "if (ticks > 2) [plot count plants / count seeds ]"
 
 SLIDER
-188
-91
-360
-124
+1005
+505
+1177
+538
 seed-mass
 seed-mass
 1
 20
-5.0
+8.0
 1
 1
 NIL
 HORIZONTAL
 
 SLIDER
-189
-208
-361
-241
+1006
+587
+1178
+620
 neighborhood-size
 neighborhood-size
 1
@@ -600,112 +527,112 @@ NIL
 HORIZONTAL
 
 SLIDER
-188
-49
-360
-82
+1005
+463
+1177
+496
 gametes-number
 gametes-number
 0
 100
-10.0
+30.0
 1
 1
 NIL
 HORIZONTAL
 
 SLIDER
-188
-130
-360
-163
+1004
+633
+1176
+666
 dispersal-distance
 dispersal-distance
 0
 30
-5.0
+4.0
 1
 1
 NIL
 HORIZONTAL
 
 PLOT
-983
+1244
 10
-1213
+1466
 131
-ri Total
+Total
 distance travelled
 # seeds
 0.0
-20.0
+10.0
 0.0
 10.0
 true
 false
-"" "if (count (seeds with [rd? = false]) > 0) [set-plot-y-range 0 (count seeds with [rd? = false] )]"
+"" "if (count seeds > 0) [set-plot-y-range 0 count seeds]"
 PENS
-"default" 1.0 1 -16777216 true "" "histogram [distance home-patch] of seeds with [rd? = false]"
+"default" 1.0 1 -16777216 true "" "histogram [distance home-patch] of seeds"
 
 PLOT
-984
-380
-1205
-500
-ri Inbreeding = 2
+1244
+377
+1465
+497
+Inbreeding = 2
 distance travelled
 # seeds
 0.0
-20.0
+10.0
 0.0
 10.0
 true
 false
-"" "if (count seeds with [inbreeding-load = 2 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 2 and rd? = false]]"
+"" "if (count seeds with [inbreeding-load = 2] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 2]]"
 PENS
-"inbreeding = 2" 1.0 1 -2674135 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 2 and rd? = false] "
+"inbreeding = 2" 1.0 1 -2674135 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 2] "
 
 PLOT
-985
-501
-1206
-621
-ri Inbreeding = 1
+1245
+498
+1466
+618
+Inbreeding = 1
 distance travelled
 # seeds
 0.0
-20.0
+10.0
 0.0
 10.0
 true
 false
-"" "if (count seeds with [inbreeding-load = 1 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 1 and rd? = false]]"
+"" "if (count seeds with [inbreeding-load = 1] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 1]]"
 PENS
-"default" 1.0 1 -13840069 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 1 and rd? = false ]"
+"default" 1.0 1 -13840069 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 1 ]"
 
 PLOT
-985
-623
-1207
-743
-ri Inbreeding = 0
+1245
+620
+1467
+740
+Inbreeding = 0
 distance travelled
 # seeds
 0.0
-20.0
+10.0
 0.0
 10.0
 true
 false
-"" "if (count seeds with [inbreeding-load = 0 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 0 and rd? = false]]"
+"" "if (count seeds with [inbreeding-load = 0] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 0]]"
 PENS
-"default" 1.0 1 -13345367 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 0 and rd? = false]"
+"default" 1.0 1 -13345367 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 0]"
 
 SLIDER
-0
-131
-172
-164
+790
+572
+962
+605
 initial-gap
 initial-gap
 0
@@ -717,92 +644,92 @@ NIL
 HORIZONTAL
 
 CHOOSER
-16
-82
-154
-127
+806
+512
+944
+557
 Initial-mix
 Initial-mix
 "Yes" "No"
 0
 
 PLOT
-1209
-380
-1418
-500
-ri realized kernel inbreeding = 2
+1469
+377
+1678
+497
+realized kernel inbreeding = 2
 distance travelled
 # plants
 0.0
-20.0
+10.0
 0.0
 10.0
 true
 false
-"" "if (count plants with [inbreeding-load = 2 and rd? = false] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 2 and rd? = false] ]"
+"" "if (count plants with [inbreeding-load = 2] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 2] ]"
 PENS
-"default" 1.0 1 -2674135 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 2 and rd? = false] "
+"default" 1.0 1 -2674135 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 2] "
 
 PLOT
-1210
-501
-1417
-621
-ir realized kernel inbreeding = 1
+1470
+498
+1677
+618
+realized kernel inbreeding = 1
 distance travelled
 # plants
 0.0
-20.0
+10.0
 0.0
 10.0
 true
 false
-"" "if (count plants with [inbreeding-load = 1 and rd? = false] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 1 and rd? = false] ]"
+"" "if (count plants with [inbreeding-load = 1] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 1] ]"
 PENS
-"default" 1.0 1 -14439633 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 1 and rd? = false ]"
+"default" 1.0 1 -14439633 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 1 ]"
 
 PLOT
-1211
-622
-1418
-742
-ri realized kernel inbreeding = 0
+1471
+619
+1678
+739
+realized kernel inbreeding = 0
 distance travelled
 # plants
 0.0
-20.0
+10.0
 0.0
 10.0
 true
 false
-"" "if (count plants with [inbreeding-load = 0 and rd? = false] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 0 and rd? = false] ]"
+"" "if (count plants with [inbreeding-load = 0] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 0] ]"
 PENS
-"default" 1.0 1 -14070903 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 0  and rd? = false]"
+"default" 1.0 1 -14070903 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 0 ]"
 
 PLOT
-1214
+1467
 10
-1417
+1676
 130
-ri realized kernel
+realized kernel
 distance travelled
 # plants
 0.0
-20.0
+10.0
 0.0
 10.0
 true
 false
-"" "if ((count plants with [rd? = false]) > 2) [set-plot-y-range 0 count plants with [rd? = false]]"
+"" "if (count plants > 2) [set-plot-y-range 0 count plants]"
 PENS
-"default" 1.0 1 -16777216 true "" "histogram [distance home-patch] of plants with [rd? = false]"
+"default" 1.0 1 -16777216 true "" "histogram [distance home-patch] of plants"
 
 BUTTON
-475
-525
-555
-559
+315
+516
+395
+550
 untrace
 clear-drawing\nask turtles [pen-erase]
 NIL
@@ -816,10 +743,10 @@ NIL
 1
 
 BUTTON
-357
-525
-470
-559
+196
+516
+309
+550
 trace dispersal
 ask up-to-n-of 100 seeds with [inbreeding-load = 0] [pd]\nask up-to-n-of 100 seeds with [inbreeding-load = 1] [pd]\nask up-to-n-of 100 seeds with [inbreeding-load = 2] [pd]\nask up-to-n-of 100 seeds with [inbreeding-load = 3] [pd]\nask up-to-n-of 100 seeds with [inbreeding-load = 4] [pd]
 T
@@ -833,46 +760,46 @@ NIL
 0
 
 PLOT
-984
-259
-1205
-379
-ri inbreeding = 3
+1244
+256
+1465
+376
+inbreeding = 3
 distance travelled
 # seeds
 0.0
-20.0
+10.0
 0.0
 10.0
 true
 false
-"" "if (count seeds with [inbreeding-load = 3 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 3 and rd? = false]]"
+"" "if (count seeds with [inbreeding-load = 3] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 3]]"
 PENS
-"default" 1.0 1 -955883 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 3 and rd? = false]"
+"default" 1.0 1 -955883 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 3]"
 
 PLOT
-1208
-259
-1416
-379
-ri realized kernel inbreeding = 3
+1468
+256
+1676
+376
+realized kernel inbreeding = 3
 distance travelled
 # plants
 0.0
-20.0
+10.0
 0.0
 10.0
 true
 false
-"" "if (count plants with [inbreeding-load = 3 and rd? = false]  > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 3 and rd? = false] ]"
+"" "if (count plants with [inbreeding-load = 3]  > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 3] ]"
 PENS
-"default" 1.0 1 -955883 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 3 and rd? = false ]"
+"default" 1.0 1 -955883 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 3 ]"
 
 BUTTON
-354
-292
-434
-326
+0
+472
+80
+506
 NIL
 establish
 NIL
@@ -886,10 +813,10 @@ NIL
 1
 
 BUTTON
-353
-329
-541
-363
+81
+472
+269
+506
 produce gametes and pollen
 produce-gametes\nproduce-pollen
 NIL
@@ -903,10 +830,10 @@ NIL
 1
 
 BUTTON
-354
-369
-468
-403
+270
+472
+384
+506
 NIL
 produce-seeds
 NIL
@@ -920,10 +847,10 @@ NIL
 1
 
 BUTTON
-354
-408
-469
-442
+387
+472
+502
+506
 NIL
 disperse-seeds
 NIL
@@ -937,10 +864,10 @@ NIL
 1
 
 BUTTON
-355
-447
-448
-481
+503
+472
+596
+506
 NIL
 kill-parents
 NIL
@@ -953,14 +880,29 @@ NIL
 NIL
 1
 
+SLIDER
+1004
+681
+1177
+714
+q
+q
+0
+1
+0.0
+0.05
+1
+NIL
+HORIZONTAL
+
 PLOT
-560
-148
-744
-298
-ri plant quantities
+513
+10
+815
+221
+plant quantities
 ticks
-# plants
+number of plants
 0.0
 10.0
 0.0
@@ -969,71 +911,86 @@ true
 false
 "" ""
 PENS
-"default" 1.0 0 -4079321 true "" "plot count plants with [inbreeding-load = 4  and rd? = false]"
-"pen-1" 1.0 0 -955883 true "" "plot count plants with [inbreeding-load = 3  and rd? = false]"
-"pen-2" 1.0 0 -2674135 true "" "plot count plants with [inbreeding-load = 2  and rd? = false]"
-"pen-3" 1.0 0 -10899396 true "" "plot count plants with [inbreeding-load = 1  and rd? = false]"
-"pen-4" 1.0 0 -13345367 true "" "plot count plants with [inbreeding-load = 0  and rd? = false]"
+"default" 1.0 0 -4079321 true "" "plot count plants with [inbreeding-load = 4 ]"
+"pen-1" 1.0 0 -955883 true "" "plot count plants with [inbreeding-load = 3 ]"
+"pen-2" 1.0 0 -2674135 true "" "plot count plants with [inbreeding-load = 2 ]"
+"pen-3" 1.0 0 -10899396 true "" "plot count plants with [inbreeding-load = 1 ]"
+"pen-4" 1.0 0 -13345367 true "" "plot count plants with [inbreeding-load = 0 ]"
 
 SLIDER
-0
-209
-173
-242
+1003
+722
+1176
+755
 random-extinction
 random-extinction
 0
 1
-0.5
+0.35
 0.05
 1
 NIL
 HORIZONTAL
 
 PLOT
-984
-136
-1204
-256
-ri inbreeding = 4
+1244
+133
+1464
+253
+inbreeding = 4
 distance travelled
 # seeds
 0.0
-20.0
+10.0
 0.0
 10.0
 true
 false
-"" "if (count seeds with [inbreeding-load = 4 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 4 and rd? = false]]"
+"" "if (count seeds with [inbreeding-load = 4] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 4]]"
 PENS
-"default" 1.0 1 -4079321 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 4 and rd? = false]"
+"default" 1.0 1 -4079321 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 4]"
 
 PLOT
-1209
-136
-1415
-256
-ri realized kernel inbreeding = 4
+1469
+133
+1675
+253
+realized kernel inbreeding = 4
 distance travelled
 # plants
 0.0
-20.0
+10.0
 0.0
 10.0
 true
 false
-"" "if (count plants with [inbreeding-load = 4 and rd? = false] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 4 and rd? = false] ]"
+"" "if (count plants with [inbreeding-load = 4] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 4] ]"
 PENS
-"default" 1.0 1 -4079321 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 4  and rd? = false]"
+"default" 1.0 1 -4079321 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 4 ]"
+
+SLIDER
+1003
+768
+1176
+801
+mass-reduction
+mass-reduction
+0
+1
+0.15
+0.05
+1
+NIL
+HORIZONTAL
 
 PLOT
-753
-300
-924
-452
-rd mean dispersal distance
+513
+223
+933
+406
+mean dispersal distance
 ticks
-distance travelled
+dispersal distance
 0.0
 4.0
 0.0
@@ -1042,150 +999,150 @@ true
 false
 "" "if (ticks > 2) [set-plot-y-range precision (mean [distance-travelled] of seeds * 0.8) 2 precision (mean [distance-travelled] of seeds * 1.2) 2]"
 PENS
-"inbreeding = 4" 1.0 0 -7171555 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 4 and rd? = true]"
-"pen-1" 1.0 0 -955883 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 3 and rd? = true]"
-"pen-2" 1.0 0 -2674135 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 2 and rd? = true]"
-"pen-3" 1.0 0 -10899396 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 1 and rd? = true]"
-"pen-4" 1.0 0 -13345367 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 0 and rd? = true]"
+"inbreeding = 4" 1.0 0 -7171555 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 4]"
+"pen-1" 1.0 0 -955883 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 3]"
+"pen-2" 1.0 0 -2674135 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 2]"
+"pen-3" 1.0 0 -10899396 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 1]"
+"pen-4" 1.0 0 -13345367 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 0]"
 
 MONITOR
-1431
+1684
 18
-1517
+1759
 63
-ri plants total
-count plants with [rd? = false]
+plants total
+count plants
 17
 1
 11
 
 MONITOR
-1432
+1685
 68
-1517
+1759
 113
-ri seeds total
-count seeds with [rd? = false]
+seeds total
+count seeds
 17
 1
 11
 
 MONITOR
-1423
-142
-1564
-187
-ri plants inbreeding = 4
-count plants with [inbreeding-load = 4 and rd? = false]
+1683
+139
+1814
+184
+plants inbreeding = 4
+count plants with [inbreeding-load = 4]
 17
 1
 11
 
 MONITOR
-1425
-193
-1565
-238
-ri seeds inbreeding = 4
-count seeds with [inbreeding-load = 4 and rd? = false]
+1685
+190
+1814
+235
+seeds inbreeding = 4
+count seeds with [inbreeding-load = 4]
 17
 1
 11
 
 MONITOR
-1428
-272
-1569
-317
-ri plants inbreeding = 3
-count plants with [inbreeding-load = 3 and rd? = false]
+1688
+269
+1819
+314
+plants inbreeding = 3
+count plants with [inbreeding-load = 3]
 17
 1
 11
 
 MONITOR
-1429
-319
-1569
-364
-ri seeds inbreeding = 3
-count seeds with [inbreeding-load = 3 and rd? = false]
+1689
+316
+1818
+361
+seeds inbreeding = 3
+count seeds with [inbreeding-load = 3]
 17
 1
 11
 
 MONITOR
-1429
-391
-1570
+1689
+388
+1820
+433
+plants inbreeding = 2
+count plants with [inbreeding-load = 2]
+17
+1
+11
+
+MONITOR
+1690
 436
-ri plants inbreeding = 2
-count plants with [inbreeding-load = 2 and rd? = false]
+1819
+481
+seeds inbreeding = 2
+count seeds with [inbreeding-load = 2]
 17
 1
 11
 
 MONITOR
-1430
-439
-1570
-484
-ri seeds inbreeding = 2
-count seeds with [inbreeding-load = 2 and rd? = false]
+1691
+512
+1822
+557
+plants inbreeding = 1
+count plants with [inbreeding-load = 1]
 17
 1
 11
 
 MONITOR
-1431
-515
-1572
-560
-ri plants inbreeding = 1
-count plants with [inbreeding-load = 1 and rd? = false]
+1691
+559
+1820
+604
+seeds inbreeding = 1
+count seeds with [inbreeding-load = 1]
 17
 1
 11
 
 MONITOR
-1431
-562
-1571
-607
-ri seeds inbreeding = 1
-count seeds with [inbreeding-load = 1 and rd? = false]
+1689
+628
+1820
+673
+plants inbreeding = 0
+count plants with [inbreeding-load = 0]
 17
 1
 11
 
 MONITOR
-1429
-631
-1570
-676
-ri plants inbreeding = 0
-count plants with [inbreeding-load = 0 and rd? = false]
-17
-1
-11
-
-MONITOR
-1430
-680
-1570
-725
-ri seeds inbreeding = 0
-count seeds with [inbreeding-load = 0 and rd? = false]
+1690
+677
+1819
+722
+seeds inbreeding = 0
+count seeds with [inbreeding-load = 0]
 17
 1
 11
 
 PLOT
-752
-454
-923
-599
-rd spatial genetic structure
+937
+223
+1235
+406
+spatial genetic structure
 geographic distance
 genetic distance
 0.0
@@ -1199,10 +1156,10 @@ PENS
 "default" 1.0 2 -16777216 true "" ""
 
 SLIDER
-189
-168
-361
-201
+1006
+547
+1178
+580
 number-of-donors
 number-of-donors
 0
@@ -1214,10 +1171,10 @@ NIL
 HORIZONTAL
 
 BUTTON
-355
-486
-418
-519
+110
+514
+173
+547
 NIL
 sgs
 NIL
@@ -1231,10 +1188,10 @@ NIL
 1
 
 SLIDER
-0
-169
-172
-202
+791
+618
+963
+651
 initial-pops
 initial-pops
 2
@@ -1246,770 +1203,47 @@ NIL
 HORIZONTAL
 
 PLOT
-2197
-139
-2357
-259
-ri Mass inbreeding = 4
-Mass
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [inbreeding-load = 4 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 4 and rd? = false] ]"
-PENS
-"default" 1.0 1 -7171555 true "" "histogram [mass] of seeds with [ inbreeding-load = 4  and rd? = false]"
-
-PLOT
-2195
-637
-2355
-757
-ri Mass inbreeding = 0
-Mass
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [inbreeding-load = 0 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 0 and rd? = false] ]"
-PENS
-"default" 1.0 1 -13345367 true "" "histogram [mass] of seeds with [ inbreeding-load = 0  and rd? = false]"
-
-PLOT
-2563
-296
-2723
-416
-ri plants inbreeding
-Homozigosity
-# plants
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"default" 1.0 1 -16777216 true "" "histogram [homozygosity] of plants with [rd? = false]"
-
-PLOT
-2563
-425
-2723
-545
-ri seeds inbreeding
-Homozigosity
-# seeds
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"default" 1.0 1 -16777216 true "" "histogram [homozygosity] of seeds with [rd? = false]"
-
-PLOT
-558
-454
-749
-599
-ri spatial genetic structure
-geographic distance
-genetic distance
-0.0
-10.0
-0.0
-1.0
-true
-false
-"" "clear-plot"
-PENS
-"default" 1.0 2 -16777216 true "" ""
-
-PLOT
-560
-300
-747
-452
-ri mean dispersal distance
-ticks
-distance travelled
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" "if (ticks > 2) [set-plot-y-range precision (mean [distance-travelled] of seeds * 0.8) 2 precision (mean [distance-travelled] of seeds * 1.2) 2]"
-PENS
-"default" 1.0 0 -4079321 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 4 and rd? = false]"
-"pen-1" 1.0 0 -955883 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 3 and rd? = false]"
-"pen-2" 1.0 0 -2674135 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 2 and rd? = false]"
-"pen-3" 1.0 0 -10899396 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 1 and rd? = false]"
-"pen-4" 1.0 0 -13345367 true "" "plotxy ticks mean [distance-travelled] of seeds with [inbreeding-load = 0 and rd? = false]"
-
-PLOT
-1600
-11
-1800
-131
-rd Total
-distance travelled
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count (seeds with [rd? = true]) > 0) [set-plot-y-range 0 (count seeds with [rd? = true] )]"
-PENS
-"default" 1.0 1 -16777216 true "" "histogram [distance home-patch] of seeds with [rd? = true]"
-
-PLOT
-1805
-10
-2003
-130
-rd realized kernel
-distance travelled
-# plants
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if ((count plants with [rd? = true]) > 2) [set-plot-y-range 0 count plants with [rd? = true]]"
-PENS
-"default" 1.0 1 -16777216 true "" "histogram [distance home-patch] of plants with [rd? = true]"
-
-PLOT
-1601
-138
-1801
-258
-rd inbreeding = 4
-distance travelled
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [inbreeding-load = 4 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 4 and rd? = true]]"
-PENS
-"default" 1.0 1 -7171555 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 4 and rd? = true]"
-
-PLOT
-1806
-138
-2006
-258
-rd realized kernel inbreeding = 4
-distance travelled
-# plants
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count plants with [inbreeding-load = 4 and rd? = true] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 4 and rd? = true] ]"
-PENS
-"default" 1.0 1 -7171555 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 4  and rd? = true]"
-
-PLOT
-1602
-260
-1802
-380
-rd inbreeding = 3
-distance travelled
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [inbreeding-load = 3 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 3 and rd? = true]]"
-PENS
-"default" 1.0 1 -955883 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 3 and rd? = true]"
-
-PLOT
-1605
-382
-1805
-502
-rd inbreeding = 2
-distance travelled
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [inbreeding-load = 2 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 2 and rd? = true]]"
-PENS
-"default" 1.0 1 -2674135 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 2 and rd? = true] "
-
-PLOT
-1605
-505
-1805
-625
-rd inbreeding = 1
-distance travelled
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [inbreeding-load = 1 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 1 and rd? = true]]"
-PENS
-"default" 1.0 1 -10899396 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 1 and rd? = true ]"
-
-PLOT
-1605
-627
-1805
-747
-rd inbreeding = 0
-distance travelled
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [inbreeding-load = 0 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 0 and rd? = false]]"
-PENS
-"default" 1.0 1 -13345367 true "" "histogram [distance home-patch] of seeds with [ inbreeding-load = 0 and rd? = false]"
-
-PLOT
-1808
-260
-2008
-380
-rd realized kernel inbreeding = 3
-distance travelled
-# plants
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count plants with [inbreeding-load = 3 and rd? = true]  > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 3 and rd? = true] ]"
-PENS
-"default" 1.0 1 -955883 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 3 and rd? = true ]"
-
-PLOT
-1809
-382
-2009
-502
-rd realized kernel inbreeding = 2
-distance travelled
-# plants
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count plants with [inbreeding-load = 2 and rd? = true] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 2 and rd? = true] ]"
-PENS
-"default" 1.0 1 -2674135 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 2 and rd? = true] "
-
-PLOT
-1810
-504
-2010
-624
-rd realized kernel inbreeding = 1
-distance travelled
-# plants
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count plants with [inbreeding-load = 1 and rd? = true] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 1 and rd? = true] ]"
-PENS
-"default" 1.0 1 -10899396 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 1 and rd? = true ]"
-
-PLOT
-1811
-625
-2011
-745
-rd realized kernel inbreeding = 0
-distance travelled
-# plants
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count plants with [inbreeding-load = 0 and rd? = true] > 0) [set-plot-y-range 0 count plants with [inbreeding-load = 0 and rd? = true] ]"
-PENS
-"default" 1.0 1 -13345367 true "" "histogram [distance home-patch] of plants with [ inbreeding-load = 0  and rd? = true]"
-
-PLOT
-750
-146
-924
-297
-rd plant quantities
-ticks
-# plants
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"default" 1.0 0 -7171555 true "" "plot count plants with [inbreeding-load = 4  and rd? = true]"
-"pen-1" 1.0 0 -955883 true "" "plot count plants with [inbreeding-load = 3  and rd? = true]"
-"pen-2" 1.0 0 -2674135 true "" "plot count plants with [inbreeding-load = 2  and rd? = true]"
-"pen-3" 1.0 0 -10899396 true "" "plot count plants with [inbreeding-load = 1  and rd? = true]"
-"pen-4" 1.0 0 -13345367 true "" "plot count plants with [inbreeding-load = 0  and rd? = true]"
-
-PLOT
-750
-10
-923
-141
-rd establishment rates
-ticks
-est. rate
-0.0
-10.0
-0.0
-1.0
-true
-false
-"" "set-plot-y-range 0 precision ( 1 /  gametes-number ) 3"
-PENS
-"default" 1.0 0 -7171555 true "" "if (ticks > 2) [plot count plants with [inbreeding-load = 4 and rd? = true] / count seeds with [inbreeding-load = 4  and rd? = true] ]"
-"pen-1" 1.0 0 -955883 true "" "if (ticks > 2) [plot count plants with [inbreeding-load = 3 and rd? = true] / count seeds with [inbreeding-load = 3  and rd? = true] ]"
-"pen-2" 1.0 0 -2674135 true "" "if (ticks > 2) [plot count plants with [inbreeding-load = 2 and rd? = true] / count seeds with [inbreeding-load = 2  and rd? = true] ]"
-"pen-3" 1.0 0 -10899396 true "" "if (ticks > 2) [plot count plants with [inbreeding-load = 1 and rd? = true] / count seeds with [inbreeding-load = 1  and rd? = true] ]"
-"pen-4" 1.0 0 -13345367 true "" "if (ticks > 2) [plot count plants with [inbreeding-load = 0 and rd? = true] / count seeds with [inbreeding-load = 0  and rd? = true] ]"
-"pen-5" 1.0 0 -16777216 true "" "if (ticks > 2) [plot count plants with [rd? = true] / count seeds with [rd? = true] ]"
-
-MONITOR
-2012
-23
-2102
-68
-rd plants total
-count plants with [rd? = true]
-17
-1
-11
-
-MONITOR
-2014
-71
-2103
-116
-rd seeds total
-count seeds with [rd? = true]
-17
-1
-11
-
-MONITOR
-2013
-144
-2159
-189
-rd plants inbreeding = 4
-count plants with [inbreeding-load = 4 and rd? = true]
-17
-1
-11
-
-MONITOR
-2016
-198
-2160
-243
-rd seeds inbreeding = 4
-count seeds with [inbreeding-load = 4 and rd? = true]
-17
-1
-11
-
-MONITOR
-2015
-317
-2159
-362
-rd seeds inbreeding = 3
-count seeds with [inbreeding-load = 3 and rd? = true]
-17
-1
-11
-
-MONITOR
-2016
-444
-2160
-489
-rd seeds inbreeding = 2
-count seeds with [inbreeding-load = 2 and rd? = true]
-17
-1
-11
-
-MONITOR
-2016
-568
-2160
-613
-rd seeds inbreeding = 1
-count seeds with [inbreeding-load = 1 and rd? = true]
-17
-1
-11
-
-MONITOR
-2020
-687
-2164
-732
-rd seeds inbreeding = 0
-count seeds with [inbreeding-load = 0 and rd? = true]
-17
-1
-11
-
-MONITOR
-2014
-268
-2160
-313
-rd plants inbreeding = 3
-count plants with [inbreeding-load = 3 and rd? = true]
-17
-1
-11
-
-MONITOR
-2015
-395
-2161
-440
-rd plants inbreeding = 2
-count plants with [inbreeding-load = 2 and rd? = true]
-17
-1
-11
-
-MONITOR
-2016
-520
-2162
-565
-rd plants inbreeding = 1
-count plants with [inbreeding-load = 1 and rd? = true]
-17
-1
-11
-
-MONITOR
-2020
-640
-2166
-685
-rd plants inbreeding = 0
-count plants with [inbreeding-load = 0 and rd? = true]
-17
-1
-11
-
-PLOT
-2363
-139
-2523
-259
-rd Mass inbreeding = 4
-Mass
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [inbreeding-load = 4 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 4 and rd? = true] ]"
-PENS
-"default" 1.0 1 -7171555 true "" "histogram [mass] of seeds with [ inbreeding-load = 4  and rd? = true]"
-
-PLOT
-2362
-638
-2524
-758
-rd Mass inbreeding = 0
-Mass
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [inbreeding-load = 0 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 0 and rd? = true] ]"
-PENS
-"default" 1.0 1 -13345367 true "" "histogram [mass] of seeds with [ inbreeding-load = 0  and rd? = true]"
-
-PLOT
-2731
-296
-2891
-416
-rd plants inbreeding
-Homozigosity
-# plants
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"default" 1.0 1 -16777216 true "" "histogram [homozygosity] of plants with [rd? = true]"
-
-PLOT
-2733
-424
-2893
-544
-rd seeds inbreeding
-Homozigosity
-# seeds
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"default" 1.0 1 -16777216 true "" "histogram [homozygosity] of seeds with [rd? = true]"
-
-PLOT
-2564
-10
-2842
-160
-Mass ri vs. rd
-ticks
-Mass
-0.0
-10.0
-0.0
-10.0
-true
-true
-"" ""
-PENS
-"independent" 1.0 0 -16777216 true "" "plot mean ([mass] of seeds with [rd? = false])"
-"dependent" 1.0 0 -7500403 true "" "plot mean ([mass] of seeds with [rd? = true])"
-
-PLOT
-2197
-10
-2357
-130
-ri Mass total
-Mass
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [ rd? = false] > 0) [set-plot-y-range 0 count seeds with [ rd? = false] ]"
-PENS
-"default" 1.0 1 -16777216 true "" "histogram [mass] of seeds with [ rd? = false]"
-
-PLOT
-2362
-10
-2522
-130
-rd Mass total
-Mass
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [ rd? = true] > 0) [set-plot-y-range 0 count seeds with [rd? = true] ]"
-PENS
-"default" 1.0 1 -16777216 true "" "histogram [mass] of seeds with [ rd? = true]"
-
-PLOT
-2196
-263
-2356
-383
-ri mass inbreeding = 3
-Mass
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [inbreeding-load = 3 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 3 and rd? = false] ]"
-PENS
-"default" 1.0 1 -955883 true "" "histogram [mass] of seeds with [ inbreeding-load = 3  and rd? = false]"
-
-PLOT
-2195
-389
-2355
-509
-ri mass inbreeding = 2
-Mass
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [inbreeding-load = 2 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 2 and rd? = false] ]"
-PENS
-"default" 1.0 1 -2674135 true "" "histogram [mass] of seeds with [ inbreeding-load = 2  and rd? = false]"
-
-PLOT
-2194
-515
-2354
-635
-ri mass inbreeding = 1
-Mass
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [inbreeding-load = 1 and rd? = false] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 1 and rd? = false] ]"
-PENS
-"default" 1.0 1 -10899396 true "" "histogram [mass] of seeds with [ inbreeding-load = 1  and rd? = false]"
-
-PLOT
-2363
-263
-2523
-383
-rd Mass inbreeding = 3
-Mass
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [inbreeding-load = 3 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 3 and rd? = true] ]"
-PENS
-"default" 1.0 1 -955883 true "" "histogram [mass] of seeds with [ inbreeding-load = 3  and rd? = true]"
-
-PLOT
-2363
-387
-2523
-507
-rd Mass inbreeding = 2
-Mass
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [inbreeding-load = 2 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 2 and rd? = true] ]"
-PENS
-"default" 1.0 1 -2674135 true "" "histogram [mass] of seeds with [ inbreeding-load = 2 and rd? = true]"
-
-PLOT
-2363
-513
-2523
-633
-rd Mass inbreeding = 1
-Mass
-# seeds
-0.0
-20.0
-0.0
-10.0
-true
-false
-"" "if (count seeds with [inbreeding-load = 1 and rd? = true] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 1 and rd? = true] ]"
-PENS
-"default" 1.0 1 -10899396 true "" "histogram [mass] of seeds with [ inbreeding-load = 1  and rd? = true]"
-
-PLOT
-2564
-163
-2843
-283
-establishment rates ri vs. rd
-ticks
-est. rate
-0.0
-10.0
-0.0
-0.5
-true
-true
-"" "set-plot-y-range 0 precision ( 1 /  gametes-number ) 3"
-PENS
-"independent" 1.0 0 -16777216 true "" "if (ticks > 2) [plot count plants with [rd? = false] / count seeds with [rd? = false] ]"
-"dependent" 1.0 0 -7500403 true "" "if (ticks > 2) [plot count plants with [rd? = true] / count seeds with [rd? = true] ]"
-
-PLOT
 0
-593
-200
-743
-mass of established
+620
+160
+740
+Mass inbreeding = 4
+NIL
+NIL
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 4] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 4] ]"
+PENS
+"default" 1.0 1 -7171555 true "" "histogram [mass] of seeds with [ inbreeding-load = 4 ]"
+
+PLOT
+165
+621
+325
+741
+Mass inbreeding = 0
+NIL
+NIL
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" "if (count seeds with [inbreeding-load = 0] > 0) [set-plot-y-range 0 count seeds with [inbreeding-load = 0] ]"
+PENS
+"default" 1.0 1 -13345367 true "" "histogram [mass] of seeds with [ inbreeding-load = 0 ]"
+
+PLOT
+351
+622
+533
+742
+plants inbreeding
 NIL
 NIL
 0.0
@@ -2020,22 +1254,25 @@ true
 false
 "" ""
 PENS
-"default" 1.0 1 -16777216 true "" ""
+"default" 1.0 1 -16777216 true "" "histogram [inbreeding] of plants"
 
-SLIDER
-377
-167
-549
-200
-Z
-Z
-1
-10
-5.0
-0.5
-1
+PLOT
+534
+622
+721
+742
+seeds inbreeding
 NIL
-HORIZONTAL
+NIL
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"default" 1.0 1 -16777216 true "" "histogram [inbreeding] of seeds"
 
 @#$#@#$#@
 # My Model Description
@@ -2044,7 +1281,10 @@ HORIZONTAL
 ## 1. Purpose and patterns
 _The aim_ of the model is to study the long-term effects and dynamics of the effects of relatedness on dispersal-strategies, and the potential feedback loop with the population's spatial genetic structure.
 
-**Background:** The model is ment to elaborate on results of a common-garden experiment, in which we have conducted manual cross-pollinations using pollen donors of increasing geographic distances (self, kin, near neighbors, distant neighbors, etc.), working under the assumption that geographic distance is a proxy of genetic distance (isolation by distance). In this work we found that with distance there is an increase in the mass of the produced seeds, and thus a decrease in their dispersal potential. Theoretically, this may be caused by an inbreeding load that causes seed mass reduction.
+**Background:** Seed dispersal is a crucial life-history stage in the life cycle of plants, which can have significant impacts on fitness, and is thus potentially subjected to natural selection. The evoltuoin of dispersal kernels is likely shaped by multiple selection pressures, simultaneously selecting for and against dispersal, and the balance between the different costs and benefits associated with it. For example, there may be selection for increased dispersal distances due to kin competition, but selection for decreased dispersal distances due to local adaptations.
+Theoretically, another potential source of complexity may rise from the fact that in plants dispersal is maternally-controlled (the dispersal unit is maternally constructed), and as siring by multiple pollen donors is ubiquitous in many plant species, levels of relatedness between the mother-plant to the seeds, as well as among the seeds, may vary. Under such circumctances, it may be advantagous to allocate different seeds to different dispersal distances, based on levels of relatedness. For example, if local adapataions are a strong selective force in the system, it may be more advantagous to have the seeds that are more similar to the mother plant
+Here I (wish to) model the long-term dynamics 
+The model is ment to elaborate on results of a common-garden experiment, in which we have conducted manual cross-pollinations using pollen donors of increasing geographic distances (self, kin, near neighbors, distant neighbors, etc.), working under the assumption that geographic distance is a proxy of genetic distance (isolation by distance). In this work we found that with distance there is an increase in the mass of the produced seeds, and thus a decrease in their dispersal potential. Theoretically, this may be caused by an inbreeding load that causes seed mass reduction.
 
 
 #### Research questions: 
@@ -2575,51 +1815,6 @@ NetLogo 6.1.1
 @#$#@#$#@
 @#$#@#$#@
 @#$#@#$#@
-<experiments>
-  <experiment name="experiment" repetitions="10" runMetricsEveryStep="false">
-    <setup>setup</setup>
-    <go>go</go>
-    <metric>count plants with [rd? = true]</metric>
-    <metric>count plants with [rd? = false]</metric>
-    <enumeratedValueSet variable="random-extinction">
-      <value value="0.1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="initial-gap">
-      <value value="0"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="N">
-      <value value="500"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="initial-pops">
-      <value value="10"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="neighborhood-size">
-      <value value="3"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="Initial-mix">
-      <value value="&quot;Yes&quot;"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="seed-mass">
-      <value value="1"/>
-      <value value="5"/>
-      <value value="10"/>
-      <value value="15"/>
-      <value value="20"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="gametes-number">
-      <value value="10"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="dispersal-distance">
-      <value value="3"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="number-of-donors">
-      <value value="6"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="q">
-      <value value="5"/>
-    </enumeratedValueSet>
-  </experiment>
-</experiments>
 @#$#@#$#@
 @#$#@#$#@
 default
