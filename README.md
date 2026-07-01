@@ -1,5 +1,8 @@
 # Dispersal-Kernel Evolution — an Agent-Based Model (NetLogo)
 
+> **Portfolio demonstration — synthetic data.** Every plant, landscape, and genotype here is produced by the simulation itself: the modelled populations, their heritable dispersal alleles, and all resulting dispersal-kernel, spatial-genetic-structure, and inbreeding output are fictional and represent no real population, place, or field measurement. This is a portfolio piece, not a real dataset.
+
+
 An individual-based (agent-based) simulation of how plant **seed-dispersal kernels** evolve when dispersal strategy is genetically encoded and free to change across generations. Built in **NetLogo**, with parameter sweeps via **BehaviorSpace** and output analysis in **R**, documented following the **ODD protocol**.
 
 > **Note on provenance.** This is one of a family of dispersal-evolution models I designed and built during my PhD. They are my own research/exploratory models and were **not** the basis of a specific publication. *(My co-authored paper Greenbaum, Dener & Giladi 2022, J. R. Soc. Interface — "Limits to the evolution of dispersal kernels under rapid fragmentation" — uses a different model, developed by G. Greenbaum, and is listed on my CV under publications.)*
